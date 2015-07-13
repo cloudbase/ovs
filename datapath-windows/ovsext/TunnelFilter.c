@@ -955,38 +955,25 @@ OvsTunnelFilterExecuteAction(HANDLE engineSession,
 
 /*
  * --------------------------------------------------------------------------
- * This function pops the whole request entries from the queue and returns the
- * number of entries through the 'count' parameter. The operation is
- * synchronized using request list spinlock.
+ * This function pops the head item from the requests list while holding
+ * the list's spinlock.
  * --------------------------------------------------------------------------
  */
-VOID
-OvsTunnelFilterRequestPopList(POVS_TUNFLT_REQUEST_LIST listRequests,
-                              PLIST_ENTRY head,
-                              UINT32 *count)
+POVS_TUNFLT_REQUEST
+OvsTunnelFilterRequestPop(POVS_TUNFLT_REQUEST_LIST listRequests)
 {
+    POVS_TUNFLT_REQUEST request = NULL;
+
     NdisAcquireSpinLock(&listRequests->spinlock);
 
     if (!IsListEmpty(&listRequests->head)) {
-        PLIST_ENTRY PrevEntry;
-        PLIST_ENTRY NextEntry;
-
-        NextEntry = listRequests->head.Flink;
-        PrevEntry = listRequests->head.Blink;
-
-        head->Flink = NextEntry;
-        NextEntry->Blink = head;
-
-        head->Blink = PrevEntry;
-        PrevEntry->Flink = head;
-
-        *count = listRequests->numEntries;
-
-        InitializeListHead(&listRequests->head);
-        listRequests->numEntries = 0;
+        request = (POVS_TUNFLT_REQUEST)RemoveHeadList(&listRequests->head);
+        listRequests->numEntries--;
     }
 
     NdisReleaseSpinLock(&listRequests->spinlock);
+
+    return request;
 }
 
 /*
@@ -1034,21 +1021,20 @@ OvsTunnelFilterThreadPush(POVS_TUNFLT_REQUEST request)
 }
 
 VOID
-OvsTunnelFilterCompleteRequest(PIRP irp,
-                               PFNTunnelVportPendingOp callback,
-                               PVOID context,
+OvsTunnelFilterCompleteRequest(POVS_TUNFLT_REQUEST request,
                                NTSTATUS status)
 {
+    PFNTunnelVportPendingOp callback = request->callback;
     UINT32 replyLen = 0;
 
     if (callback) {
-        callback(context, status, &replyLen);
+        callback(request->context, status, &replyLen);
         /* Release the context passed to the callback function. */
-        OvsFreeMemory(context);
+        OvsFreeMemory(request->context);
     }
 
-    if (irp) {
-        OvsCompleteIrpRequest(irp, (ULONG_PTR)replyLen, status);
+    if (request->irp) {
+        OvsCompleteIrpRequest(request->irp, (ULONG_PTR)replyLen, status);
     }
 }
 
@@ -1056,16 +1042,10 @@ VOID
 OvsTunnelFilterRequestListProcess(POVS_TUNFLT_THREAD_CONTEXT threadCtx)
 {
     POVS_TUNFLT_REQUEST request = NULL;
-    PLIST_ENTRY         link = NULL;
-    PLIST_ENTRY         next = NULL;
-    LIST_ENTRY          head;
     NTSTATUS            status = STATUS_SUCCESS;
-    UINT32              count = 0;
     BOOLEAN             inTransaction = FALSE;
-    BOOLEAN             error = TRUE;
 
-    do
-    {
+    do {
         if (!InterlockedCompareExchange(
             (LONG volatile *)&threadCtx->listRequests.numEntries, 0, 0)) {
             OVS_LOG_INFO("Nothing to do... request list is empty.");
@@ -1080,38 +1060,25 @@ OvsTunnelFilterRequestListProcess(POVS_TUNFLT_THREAD_CONTEXT threadCtx)
         }
         inTransaction = TRUE;
 
-        InitializeListHead(&head);
-        OvsTunnelFilterRequestPopList(&threadCtx->listRequests, &head, &count);
-
-        LIST_FORALL_SAFE(&head, link, next) {
-            request = CONTAINING_RECORD(link, OVS_TUNFLT_REQUEST, entry);
+        while (NULL != (request = OvsTunnelFilterRequestPop(
+            &threadCtx->listRequests))) {
 
             status = OvsTunnelFilterExecuteAction(threadCtx->engineSession,
                                                   request);
-            if (!NT_SUCCESS(status)) {
-                RemoveEntryList(&request->entry);
-                count--;
 
-                /* Complete the IRP with the failure status. */
-                OvsTunnelFilterCompleteRequest(request->irp,
-                                               request->callback,
-                                               request->context,
-                                               status);
-                OvsFreeMemory(request);
-                request = NULL;
-            } else {
-                error = FALSE;
+            /* Complete the IRP with the last operation status. */
+            OvsTunnelFilterCompleteRequest(request, status);
+
+            OvsFreeMemory(request);
+            request = NULL;
+
+            if (!NT_SUCCESS(status)) {
+                break;
             }
         }
 
-        if (error) {
-            /* No successful requests were made, so there is no point to commit
-             * the transaction. */
-            break;
-        }
-
         status = FwpmTransactionCommit(threadCtx->engineSession);
-        if (!NT_SUCCESS(status)){
+        if (!NT_SUCCESS(status)) {
             OVS_LOG_ERROR("Failed to commit transaction, status: %x.",
                           status);
             break;
@@ -1124,20 +1091,6 @@ OvsTunnelFilterRequestListProcess(POVS_TUNFLT_THREAD_CONTEXT threadCtx)
         FwpmTransactionAbort(threadCtx->engineSession);
         OVS_LOG_ERROR("Failed to execute request, status: %x.\
                        Transaction aborted.", status);
-    }
-
-    /* Complete the requests successfully executed with the transaction commit
-     * status. */
-    while (count) {
-        request = (POVS_TUNFLT_REQUEST)RemoveHeadList(&head);
-        count--;
-
-        OvsTunnelFilterCompleteRequest(request->irp,
-                                       request->callback,
-                                       request->context,
-                                       status);
-        OvsFreeMemory(request);
-        request = NULL;
     }
 }
 
@@ -1194,7 +1147,7 @@ OvsTunnelFilterThreadProc(PVOID context)
                     OvsTunnelFilterRequestListProcess(threadCtx);
                     break;
                 default:
-                    /* Finish processing the received requests and exit. */
+                    /* Finish processing the remaining requests and exit. */
                     OvsTunnelFilterRequestListProcess(threadCtx);
                     exit = TRUE;
                     break;
