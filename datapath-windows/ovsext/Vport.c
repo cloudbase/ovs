@@ -97,6 +97,20 @@ static VOID OvsTunnelVportPendingRemove(PVOID context,
                                         UINT32 *replyLen);
 
 
+static const NL_POLICY ovsVportPolicy[__OVS_VPORT_ATTR_MAX] = {
+    [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
+    [OVS_VPORT_ATTR_TYPE] = { .type = NL_A_U32, .optional = TRUE },
+    [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
+                              .optional = TRUE },
+    [OVS_VPORT_ATTR_UPCALL_PID] = { .type = NL_A_UNSPEC,
+                                    .optional = TRUE },
+    [OVS_VPORT_ATTR_STATS] = { .type = NL_A_UNSPEC,
+                               .minLen = sizeof(OVS_VPORT_FULL_STATS),
+                               .maxLen = sizeof(OVS_VPORT_FULL_STATS),
+                               .optional = TRUE },
+    [OVS_VPORT_ATTR_OPTIONS] = { .type = NL_A_NESTED, .optional = TRUE },
+};
+
 /*
  * Functions implemented in relaton to NDIS port manipulation.
  */
@@ -271,7 +285,7 @@ HvDeletePort(POVS_SWITCH_CONTEXT switchContext,
      * counterpart was deleted. If the datapath port counterpart is present,
      * we only mark the vport for deletion, so that a netlink command vport
      * delete will delete the vport.
-    */
+     */
     if (vport) {
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
     } else {
@@ -1624,7 +1638,7 @@ OvsGetNetdevCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                                        .minLen = 2,
                                        .maxLen = IFNAMSIZ },
     };
-    PNL_ATTR netdevAttrs[ARRAY_SIZE(ovsNetdevPolicy)];
+    PNL_ATTR netdevAttrs[ARRAY_SIZE(ovsNetdevPolicy)] = { NULL };
 
     /* input buffer has been validated while validating transaction dev op. */
     ASSERT(usrParamsCtx->inputBuffer != NULL &&
@@ -1635,9 +1649,9 @@ OvsGetNetdevCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     }
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-        ovsNetdevPolicy, netdevAttrs, ARRAY_SIZE(netdevAttrs))) {
+                     NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsNetdevPolicy,
+                     netdevAttrs, ARRAY_SIZE(ovsNetdevPolicy))) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -1962,22 +1976,15 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     UINT32 portNameLen = 0;
     UINT32 portNumber = OVS_DPPORT_NUMBER_INVALID;
 
-    static const NL_POLICY ovsVportPolicy[] = {
-        [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
-        [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING,
-                                  .minLen = 2,
-                                  .maxLen = IFNAMSIZ,
-                                  .optional = TRUE},
-    };
-    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
+    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)] = { NULL };
 
     /* input buffer has been validated while validating write dev op. */
     ASSERT(usrParamsCtx->inputBuffer != NULL);
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-        ovsVportPolicy, vportAttrs, ARRAY_SIZE(vportAttrs))) {
+                     NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsVportPolicy,
+                     vportAttrs, ARRAY_SIZE(ovsVportPolicy))) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2097,17 +2104,7 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     BOOLEAN vportAllocated = FALSE, vportInitialized = FALSE;
     BOOLEAN addInternalPortAsNetdev = FALSE;
 
-    static const NL_POLICY ovsVportPolicy[] = {
-        [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
-        [OVS_VPORT_ATTR_TYPE] = { .type = NL_A_U32, .optional = FALSE },
-        [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
-                                  .optional = FALSE},
-        [OVS_VPORT_ATTR_UPCALL_PID] = { .type = NL_A_UNSPEC,
-                                        .optional = FALSE },
-        [OVS_VPORT_ATTR_OPTIONS] = { .type = NL_A_NESTED, .optional = TRUE },
-    };
-
-    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
+    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)] = { NULL };
 
     /* input buffer has been validated while validating write dev op. */
     ASSERT(usrParamsCtx->inputBuffer != NULL);
@@ -2116,9 +2113,9 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-        ovsVportPolicy, vportAttrs, ARRAY_SIZE(vportAttrs))) {
+                     NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsVportPolicy,
+                     vportAttrs, ARRAY_SIZE(ovsVportPolicy))) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2312,27 +2309,14 @@ OvsSetVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     POVS_VPORT_ENTRY vport = NULL;
     NL_ERROR nlError = NL_ERROR_SUCCESS;
 
-    static const NL_POLICY ovsVportPolicy[] = {
-        [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
-        [OVS_VPORT_ATTR_TYPE] = { .type = NL_A_U32, .optional = TRUE },
-        [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
-                                  .optional = TRUE },
-        [OVS_VPORT_ATTR_UPCALL_PID] = { .type = NL_A_UNSPEC,
-                                        .optional = TRUE },
-        [OVS_VPORT_ATTR_STATS] = { .type = NL_A_UNSPEC,
-                                   .minLen = sizeof(OVS_VPORT_FULL_STATS),
-                                   .maxLen = sizeof(OVS_VPORT_FULL_STATS),
-                                   .optional = TRUE },
-        [OVS_VPORT_ATTR_OPTIONS] = { .type = NL_A_NESTED, .optional = TRUE },
-    };
-    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
+    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)] = { NULL };
 
     ASSERT(usrParamsCtx->inputBuffer != NULL);
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-        ovsVportPolicy, vportAttrs, ARRAY_SIZE(vportAttrs))) {
+                     NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsVportPolicy,
+                     vportAttrs, ARRAY_SIZE(ovsVportPolicy))) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2422,19 +2406,14 @@ OvsDeleteVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     PSTR portName = NULL;
     UINT32 portNameLen = 0;
 
-    static const NL_POLICY ovsVportPolicy[] = {
-        [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
-        [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
-                                  .optional = TRUE },
-    };
-    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
+    PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)] = { NULL };
 
     ASSERT(usrParamsCtx->inputBuffer != NULL);
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-        ovsVportPolicy, vportAttrs, ARRAY_SIZE(vportAttrs))) {
+                     NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsVportPolicy,
+                     vportAttrs, ARRAY_SIZE(ovsVportPolicy))) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2569,17 +2548,7 @@ OvsTunnelVportPendingInit(PVOID context,
             break;
         }
 
-        static const NL_POLICY ovsVportPolicy[] = {
-            [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
-            [OVS_VPORT_ATTR_TYPE] = { .type = NL_A_U32, .optional = FALSE },
-            [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
-            .optional = FALSE },
-            [OVS_VPORT_ATTR_UPCALL_PID] = { .type = NL_A_UNSPEC,
-            .optional = FALSE },
-            [OVS_VPORT_ATTR_OPTIONS] = { .type = NL_A_NESTED, .optional = TRUE },
-        };
-
-        PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
+        PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)] = { NULL };
 
         /* input buffer has been validated while validating write dev op. */
         ASSERT(msgIn != NULL);
@@ -2588,9 +2557,9 @@ OvsTunnelVportPendingInit(PVOID context,
         ASSERT(msgOut != NULL && tunnelContext->outputLength >= sizeof *msgOut);
 
         if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-            NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-            NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-            ovsVportPolicy, vportAttrs, ARRAY_SIZE(vportAttrs))) {
+                         NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                         NlMsgAttrsLen((PNL_MSG_HDR)msgIn), ovsVportPolicy,
+                         vportAttrs, ARRAY_SIZE(ovsVportPolicy))) {
             nlError = NL_ERROR_INVAL;
             break;
         }
