@@ -482,8 +482,6 @@ CalculateChecksumNB(const PNET_BUFFER nb,
     while (csumDataLen && (currentMdl != NULL)) {
         ASSERT(mdlLen < 65536);
         csLen = MIN((UINT16) mdlLen, csumDataLen);
-        //XXX Not handling odd bytes yet.
-        ASSERT(((csLen & 0x1) == 0) || csumDataLen <= mdlLen);
 
         csum = CalculateOnesComplement(src, csLen, csum, TRUE);
         fold64(csum);
