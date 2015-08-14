@@ -354,6 +354,14 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         rc = STATUS_SUCCESS;
     }
 
+    if (!NlMsgPutNested(&nlBuf, OVS_FLOW_ATTR_KEY,
+                        NlAttrData(flowAttrs[OVS_FLOW_ATTR_KEY]),
+                        NlAttrGetSize(flowAttrs[OVS_FLOW_ATTR_KEY]))) {
+        OVS_LOG_ERROR("Adding OVS_FLOW_ATTR_KEY attribute failed.");
+        nlError = NL_ERROR_NOENT;
+        goto done;
+    }
+
     /* Append OVS_FLOW_ATTR_STATS attribute */
     if (!NlMsgPutTailUnspec(&nlBuf, OVS_FLOW_ATTR_STATS, (PCHAR)(&replyStats),
                             sizeof(replyStats))) {
