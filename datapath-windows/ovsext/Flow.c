@@ -93,7 +93,7 @@ static NTSTATUS OvsDoDumpFlows(OvsFlowDumpInput *dumpInput,
 /* Flow family related netlink policies */
 
 /* For Parsing attributes in FLOW_* commands */
-const NL_POLICY nlFlowPolicy[] = {
+const NL_POLICY nlFlowPolicy[__OVS_FLOW_ATTR_MAX] = {
     [OVS_FLOW_ATTR_KEY] = {.type = NL_A_NESTED, .optional = FALSE},
     [OVS_FLOW_ATTR_MASK] = {.type = NL_A_NESTED, .optional = TRUE},
     [OVS_FLOW_ATTR_ACTIONS] = {.type = NL_A_NESTED, .optional = TRUE},
@@ -109,7 +109,7 @@ const NL_POLICY nlFlowPolicy[] = {
  * Some of the attributes like OVS_KEY_ATTR_RECIRC_ID
  * & OVS_KEY_ATTR_MPLS are not supported yet. */
 
-const NL_POLICY nlFlowKeyPolicy[] = {
+const NL_POLICY nlFlowKeyPolicy[__OVS_KEY_ATTR_MAX] = {
     [OVS_KEY_ATTR_ENCAP] = {.type = NL_A_VAR_LEN, .optional = TRUE},
     [OVS_KEY_ATTR_PRIORITY] = {.type = NL_A_UNSPEC, .minLen = 4,
                                .maxLen = 4, .optional = TRUE},
@@ -173,7 +173,7 @@ const NL_POLICY nlFlowKeyPolicy[] = {
 };
 
 /* For Parsing nested OVS_KEY_ATTR_TUNNEL attributes */
-const NL_POLICY nlFlowTunnelKeyPolicy[] = {
+const NL_POLICY nlFlowTunnelKeyPolicy[__OVS_TUNNEL_KEY_ATTR_MAX] = {
     [OVS_TUNNEL_KEY_ATTR_ID] = {.type = NL_A_UNSPEC, .minLen = 8,
                                 .maxLen = 8, .optional = TRUE},
     [OVS_TUNNEL_KEY_ATTR_IPV4_SRC] = {.type = NL_A_UNSPEC, .minLen = 4,
@@ -195,7 +195,7 @@ const NL_POLICY nlFlowTunnelKeyPolicy[] = {
 };
 
 /* For Parsing nested OVS_FLOW_ATTR_ACTIONS attributes */
-const NL_POLICY nlFlowActionPolicy[] = {
+const NL_POLICY nlFlowActionPolicy[__OVS_ACTION_ATTR_MAX] = {
     [OVS_ACTION_ATTR_OUTPUT] = {.type = NL_A_UNSPEC, .minLen = sizeof(UINT32),
                                 .maxLen = sizeof(UINT32), .optional = TRUE},
     [OVS_ACTION_ATTR_USERSPACE] = {.type = NL_A_VAR_LEN, .optional = TRUE},
@@ -252,7 +252,7 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     PNL_MSG_HDR nlMsgHdr = &(msgIn->nlMsg);
     PGENL_MSG_HDR genlMsgHdr = &(msgIn->genlMsg);
     POVS_HDR ovsHdr = &(msgIn->ovsHdr);
-    PNL_ATTR nlAttrs[__OVS_FLOW_ATTR_MAX];
+    PNL_ATTR flowAttrs[ARRAY_SIZE(nlFlowPolicy)] = { NULL };
     UINT32 attrOffset = NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN;
     OvsFlowPut mappedFlow;
     OvsFlowStats stats;
@@ -266,25 +266,25 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 
     if (!(usrParamsCtx->outputBuffer)) {
         /* No output buffer */
-        rc = STATUS_INVALID_BUFFER_SIZE;
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
     /* Get all the top level Flow attributes */
     if ((NlAttrParse(nlMsgHdr, attrOffset, NlMsgAttrsLen(nlMsgHdr),
-                     nlFlowPolicy, nlAttrs, ARRAY_SIZE(nlAttrs)))
+                     nlFlowPolicy, flowAttrs, ARRAY_SIZE(nlFlowPolicy)))
                      != TRUE) {
         OVS_LOG_ERROR("Attr Parsing failed for msg: %p",
                        nlMsgHdr);
-        rc = STATUS_INVALID_PARAMETER;
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
     /* FLOW_DEL command w/o any key input is a flush case. */
     if ((genlMsgHdr->cmd == OVS_FLOW_CMD_DEL) &&
-        (!(nlAttrs[OVS_FLOW_ATTR_KEY]))) {
+        (!(flowAttrs[OVS_FLOW_ATTR_KEY]))) {
 
-        rc = OvsFlushFlowIoctl(ovsHdr->dp_ifindex);
+       rc = OvsFlushFlowIoctl(ovsHdr->dp_ifindex);
 
        if (rc == STATUS_SUCCESS) {
             /* XXX: refactor this code. */
@@ -300,18 +300,23 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
             if (ok) {
                 *replyLen = msgOut->nlMsg.nlmsgLen;
             } else {
-                rc = STATUS_INVALID_BUFFER_SIZE;
+                nlError = NL_ERROR_NOENT;
+                goto done;
             }
+       }
+       else {
+           nlError = NL_ERROR_NOENT;
        }
 
        goto done;
     }
 
-    if ((rc = _MapNlToFlowPut(msgIn, nlAttrs[OVS_FLOW_ATTR_KEY],
-         nlAttrs[OVS_FLOW_ATTR_ACTIONS], nlAttrs[OVS_FLOW_ATTR_CLEAR],
-         &mappedFlow))
+    if ((rc = _MapNlToFlowPut(msgIn, flowAttrs[OVS_FLOW_ATTR_KEY],
+                              flowAttrs[OVS_FLOW_ATTR_ACTIONS],
+                              flowAttrs[OVS_FLOW_ATTR_CLEAR], &mappedFlow))
         != STATUS_SUCCESS) {
         OVS_LOG_ERROR("Conversion to OvsFlowPut failed");
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -319,6 +324,7 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                          &stats);
     if (rc != STATUS_SUCCESS) {
         OVS_LOG_ERROR("OvsPutFlowIoctl failed.");
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -335,17 +341,17 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                       genlMsgHdr->cmd, OVS_FLOW_VERSION,
                       ovsHdr->dp_ifindex);
     if (!ok) {
-        rc = STATUS_INVALID_BUFFER_SIZE;
+        nlError = NL_ERROR_NOENT;
         goto done;
     } else {
         rc = STATUS_SUCCESS;
     }
 
     /* Append OVS_FLOW_ATTR_STATS attribute */
-    if (!NlMsgPutTailUnspec(&nlBuf, OVS_FLOW_ATTR_STATS,
-        (PCHAR)(&replyStats), sizeof(replyStats))) {
+    if (!NlMsgPutTailUnspec(&nlBuf, OVS_FLOW_ATTR_STATS, (PCHAR)(&replyStats),
+                            sizeof(replyStats))) {
         OVS_LOG_ERROR("Adding OVS_FLOW_ATTR_STATS attribute failed.");
-        rc = STATUS_INVALID_BUFFER_SIZE;
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -376,29 +382,13 @@ OvsFlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                        UINT32 *replyLen)
 {
     NTSTATUS status = STATUS_SUCCESS;
-    NL_ERROR nlError = NL_ERROR_SUCCESS;
-    POVS_MESSAGE msgIn = (POVS_MESSAGE)usrParamsCtx->inputBuffer;
 
     if (usrParamsCtx->devOp == OVS_TRANSACTION_DEV_OP) {
         status = _FlowNlGetCmdHandler(usrParamsCtx, replyLen);
-
-        /* No trasanctional errors as of now.
-         * If we have something then we need to convert rc to
-         * nlError. */
-        if ((nlError != NL_ERROR_SUCCESS) &&
-            (usrParamsCtx->outputBuffer)) {
-            POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
-                                           usrParamsCtx->outputBuffer;
-            NlBuildErrorMsg(msgIn, msgError, nlError);
-            *replyLen = msgError->nlMsg.nlmsgLen;
-            status = STATUS_SUCCESS;
-            goto done;
-        }
     } else {
         status = _FlowNlDumpCmdHandler(usrParamsCtx, replyLen);
     }
 
-done:
     return status;
 }
 
@@ -418,13 +408,13 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     POVS_HDR ovsHdr = &(msgIn->ovsHdr);
     PNL_MSG_HDR nlMsgOutHdr = NULL;
     UINT32 attrOffset = NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN;
-    PNL_ATTR nlAttrs[__OVS_FLOW_ATTR_MAX];
-
+    PNL_ATTR flowAttrs[ARRAY_SIZE(nlFlowPolicy)] = { NULL };
+    PNL_ATTR keyAttrs[ARRAY_SIZE(nlFlowKeyPolicy)] = { NULL };
+    PNL_ATTR tunnelAttrs[ARRAY_SIZE(nlFlowTunnelKeyPolicy)] = { NULL };
+    NL_ERROR nlError = NL_ERROR_SUCCESS;
     OvsFlowGetInput getInput;
     OvsFlowGetOutput getOutput;
     NL_BUFFER nlBuf;
-    PNL_ATTR keyAttrs[__OVS_KEY_ATTR_MAX];
-    PNL_ATTR tunnelAttrs[__OVS_TUNNEL_KEY_ATTR_MAX];
 
     NlBufInit(&nlBuf, usrParamsCtx->outputBuffer,
               usrParamsCtx->outputLength);
@@ -441,30 +431,34 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         rc = STATUS_INVALID_PARAMETER;
         OVS_LOG_ERROR("inputLength: %d GREATER THEN outputLength: %d",
                       usrParamsCtx->inputLength, usrParamsCtx->outputLength);
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
     /* Get all the top level Flow attributes */
     if ((NlAttrParse(nlMsgHdr, attrOffset, NlMsgAttrsLen(nlMsgHdr),
-                     nlFlowPolicy, nlAttrs, ARRAY_SIZE(nlAttrs)))
+                     nlFlowPolicy, flowAttrs, ARRAY_SIZE(nlFlowPolicy)))
                      != TRUE) {
         OVS_LOG_ERROR("Attr Parsing failed for msg: %p",
                        nlMsgHdr);
         rc = STATUS_INVALID_PARAMETER;
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
-    keyAttrOffset = (UINT32)((PCHAR) nlAttrs[OVS_FLOW_ATTR_KEY] -
+    keyAttrOffset = (UINT32)((PCHAR) flowAttrs[OVS_FLOW_ATTR_KEY] -
                     (PCHAR)nlMsgHdr);
 
     /* Get flow keys attributes */
     if ((NlAttrParseNested(nlMsgHdr, keyAttrOffset,
-                           NlAttrLen(nlAttrs[OVS_FLOW_ATTR_KEY]),
-                           nlFlowKeyPolicy, keyAttrs, ARRAY_SIZE(keyAttrs)))
+                           NlAttrLen(flowAttrs[OVS_FLOW_ATTR_KEY]),
+                           nlFlowKeyPolicy, keyAttrs,
+                           ARRAY_SIZE(nlFlowKeyPolicy)))
                            != TRUE) {
         OVS_LOG_ERROR("Key Attr Parsing failed for msg: %p",
                        nlMsgHdr);
         rc = STATUS_INVALID_PARAMETER;
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -477,10 +471,11 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         if ((NlAttrParseNested(nlMsgHdr, tunnelKeyAttrOffset,
                                NlAttrLen(keyAttrs[OVS_KEY_ATTR_TUNNEL]),
                                nlFlowTunnelKeyPolicy,
-                               tunnelAttrs, ARRAY_SIZE(tunnelAttrs)))
+                               tunnelAttrs, ARRAY_SIZE(nlFlowTunnelKeyPolicy)))
                                != TRUE) {
             OVS_LOG_ERROR("Tunnel key Attr Parsing failed for msg: %p",
                            nlMsgHdr);
+            nlError = NL_ERROR_NOENT;
             rc = STATUS_INVALID_PARAMETER;
             goto done;
         }
@@ -510,12 +505,14 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                       usrParamsCtx->inputLength);
     if (!ok) {
         OVS_LOG_ERROR("Could not copy the data to the buffer tail");
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
     rc = _MapFlowStatsToNlStats(&nlBuf, &((getOutput.info).stats));
     if (rc != STATUS_SUCCESS) {
         OVS_LOG_ERROR("_OvsFlowMapFlowKeyToNlStats failed.");
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -523,6 +520,7 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                                   getOutput.info.actions);
     if (rc != STATUS_SUCCESS) {
         OVS_LOG_ERROR("_MapFlowActionToNlAction failed.");
+        nlError = NL_ERROR_NOENT;
         goto done;
     }
 
@@ -530,7 +528,15 @@ _FlowNlGetCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     NlMsgAlignSize(nlMsgOutHdr);
     *replyLen += NlMsgSize(nlMsgOutHdr);
 
-done:
+done :
+    if (nlError != NL_ERROR_SUCCESS) {
+        POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
+            usrParamsCtx->outputBuffer;
+        NlBuildErrorMsg(msgIn, msgError, nlError);
+        *replyLen = msgError->nlMsg.nlmsgLen;
+        rc = STATUS_SUCCESS;
+    }
+
     return rc;
 }
 
@@ -1176,14 +1182,14 @@ _MapNlToFlowPut(POVS_MESSAGE msgIn, PNL_ATTR keyAttr,
 
     UINT32 keyAttrOffset = (UINT32)((PCHAR)keyAttr - (PCHAR)nlMsgHdr);
     UINT32 tunnelKeyAttrOffset;
-
-    PNL_ATTR keyAttrs[__OVS_KEY_ATTR_MAX] = {NULL};
-    PNL_ATTR tunnelAttrs[__OVS_TUNNEL_KEY_ATTR_MAX] = {NULL};
+    PNL_ATTR keyAttrs[ARRAY_SIZE(nlFlowKeyPolicy)] = { NULL };
+    PNL_ATTR tunnelAttrs[ARRAY_SIZE(nlFlowTunnelKeyPolicy)] = { NULL };
 
     /* Get flow keys attributes */
     if ((NlAttrParseNested(nlMsgHdr, keyAttrOffset, NlAttrLen(keyAttr),
-                           nlFlowKeyPolicy, keyAttrs, ARRAY_SIZE(keyAttrs)))
-                           != TRUE) {
+                           nlFlowKeyPolicy, keyAttrs,
+                           ARRAY_SIZE(nlFlowKeyPolicy)))
+        != TRUE) {
         OVS_LOG_ERROR("Key Attr Parsing failed for msg: %p",
                        nlMsgHdr);
         rc = STATUS_INVALID_PARAMETER;
@@ -1199,7 +1205,7 @@ _MapNlToFlowPut(POVS_MESSAGE msgIn, PNL_ATTR keyAttr,
         if ((NlAttrParseNested(nlMsgHdr, tunnelKeyAttrOffset,
                                NlAttrLen(keyAttrs[OVS_KEY_ATTR_TUNNEL]),
                                nlFlowTunnelKeyPolicy,
-                               tunnelAttrs, ARRAY_SIZE(tunnelAttrs)))
+                               tunnelAttrs, ARRAY_SIZE(nlFlowTunnelKeyPolicy)))
                                != TRUE) {
             OVS_LOG_ERROR("Tunnel key Attr Parsing failed for msg: %p",
                            nlMsgHdr);
@@ -1219,8 +1225,7 @@ _MapNlToFlowPut(POVS_MESSAGE msgIn, PNL_ATTR keyAttr,
 
     mappedFlow->dpNo = ovsHdr->dp_ifindex;
 
-    _MapNlToFlowPutFlags(genlMsgHdr, flowAttrClear,
-                                mappedFlow);
+    _MapNlToFlowPutFlags(genlMsgHdr, flowAttrClear, mappedFlow);
 
 done:
     return rc;
@@ -1233,8 +1238,8 @@ done:
  *----------------------------------------------------------------------------
  */
 static VOID
-_MapNlToFlowPutFlags(PGENL_MSG_HDR genlMsgHdr,
-                     PNL_ATTR flowAttrClear, OvsFlowPut *mappedFlow)
+_MapNlToFlowPutFlags(PGENL_MSG_HDR genlMsgHdr, PNL_ATTR flowAttrClear,
+                     OvsFlowPut *mappedFlow)
 {
     uint32_t flags = 0;
 
@@ -1874,9 +1879,7 @@ AddFlow(OVS_DATAPATH *datapath, OvsFlow *flow)
      */
     KeMemoryBarrier();
 
-    //KeAcquireSpinLock(&FilterDeviceExtension->NblQueueLock, &oldIrql);
     InsertTailList(head, &flow->ListEntry);
-    //KeReleaseSpinLock(&FilterDeviceExtension->NblQueueLock, oldIrql);
 
     datapath->nFlows++;
 
