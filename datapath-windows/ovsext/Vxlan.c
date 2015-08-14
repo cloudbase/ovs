@@ -152,9 +152,9 @@ OvsCleanupVxlanTunnel(PIRP irp,
 
     if (vxlanPort->filterID != 0) {
         status = OvsTunnelFilterDelete(irp,
-				       vxlanPort->filterID,
-				       callback,
-				       tunnelContext);
+                                       vxlanPort->filterID,
+                                       callback,
+                                       tunnelContext);
     } else {
         OvsFreeMemoryWithTag(vport->priv, OVS_VXLAN_POOL_TAG);
         vport->priv = NULL;
@@ -163,6 +163,216 @@ OvsCleanupVxlanTunnel(PIRP irp,
     return status;
 }
 
+static __inline VOID *
+GetStartAddrNBL(const NET_BUFFER_LIST *_pNB)
+{
+    PMDL curMdl;
+    PUINT8 curBuffer;
+    PEthHdr curHeader;
+
+    ASSERT(_pNB);
+
+    // Ethernet Header is a guaranteed safe access.
+    curMdl = (NET_BUFFER_LIST_FIRST_NB(_pNB))->CurrentMdl;
+    curBuffer = MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority);
+    if (!curBuffer) {
+        return NULL;
+    }
+
+    curHeader = (PEthHdr)
+        (curBuffer + (NET_BUFFER_LIST_FIRST_NB(_pNB))->CurrentMdlOffset);
+
+    return (VOID *)curHeader;
+}
+
+NDIS_STATUS
+OvsExtractLayers(const NET_BUFFER_LIST *packet,
+                 POVS_PACKET_HDR_INFO layers)
+{
+    struct Eth_Header *eth;
+    UINT8 offset = 0;
+    PVOID vlanTagValue;
+
+    layers->value = 0;
+    OvsFlowKey flow_temp = { 0 };
+    OvsFlowKey* flow = &flow_temp;
+
+    if (OvsPacketLenNBL(packet) < ETH_HEADER_LEN_DIX) {
+        flow->l2.keyLen = OVS_WIN_TUNNEL_KEY_SIZE + 8 - flow->l2.offset;
+        return NDIS_STATUS_SUCCESS;
+    }
+
+    /* Link layer. */
+    eth = (Eth_Header *)GetStartAddrNBL((NET_BUFFER_LIST *)packet);
+    memcpy(flow->l2.dlSrc, eth->src, ETH_ADDR_LENGTH);
+    memcpy(flow->l2.dlDst, eth->dst, ETH_ADDR_LENGTH);
+
+    /*
+    * vlan_tci.
+    */
+    vlanTagValue = NET_BUFFER_LIST_INFO(packet, Ieee8021QNetBufferListInfo);
+    if (vlanTagValue) {
+        PNDIS_NET_BUFFER_LIST_8021Q_INFO vlanTag =
+            (PNDIS_NET_BUFFER_LIST_8021Q_INFO)(PVOID *)&vlanTagValue;
+        flow->l2.vlanTci = htons(vlanTag->TagHeader.VlanId | OVSWIN_VLAN_CFI |
+            (vlanTag->TagHeader.UserPriority << 13));
+    }
+    else {
+        if (eth->dix.typeNBO == ETH_TYPE_802_1PQ_NBO) {
+            Eth_802_1pq_Tag *tag = (Eth_802_1pq_Tag *)&eth->dix.typeNBO;
+            flow->l2.vlanTci = ((UINT16)tag->priority << 13) |
+                OVSWIN_VLAN_CFI |
+                ((UINT16)tag->vidHi << 8) | tag->vidLo;
+            offset = sizeof(Eth_802_1pq_Tag);
+        }
+        else {
+            flow->l2.vlanTci = 0;
+        }
+        /*
+        * XXX
+        * Please note after this point, src mac and dst mac should
+        * not be accessed through eth
+        */
+        eth = (Eth_Header *)((UINT8 *)eth + offset);
+    }
+
+    /*
+    * dl_type.
+    *
+    * XXX assume that at least the first
+    * 12 bytes of received packets are mapped.  This code has the stronger
+    * assumption that at least the first 22 bytes of 'packet' is mapped (if my
+    * arithmetic is right).
+    */
+    if (ETH_TYPENOT8023(eth->dix.typeNBO)) {
+        flow->l2.dlType = eth->dix.typeNBO;
+        layers->l3Offset = ETH_HEADER_LEN_DIX + offset;
+    }
+    else if (OvsPacketLenNBL(packet) >= ETH_HEADER_LEN_802_3 &&
+        eth->e802_3.llc.dsap == 0xaa &&
+        eth->e802_3.llc.ssap == 0xaa &&
+        eth->e802_3.llc.control == ETH_LLC_CONTROL_UFRAME &&
+        eth->e802_3.snap.snapOrg[0] == 0x00 &&
+        eth->e802_3.snap.snapOrg[1] == 0x00 &&
+        eth->e802_3.snap.snapOrg[2] == 0x00) {
+        flow->l2.dlType = eth->e802_3.snap.snapType.typeNBO;
+        layers->l3Offset = ETH_HEADER_LEN_802_3 + offset;
+    }
+    else {
+        flow->l2.dlType = htons(OVSWIN_DL_TYPE_NONE);
+        layers->l3Offset = ETH_HEADER_LEN_DIX + offset;
+    }
+
+    flow->l2.keyLen = OVS_WIN_TUNNEL_KEY_SIZE + OVS_L2_KEY_SIZE - flow->l2.offset;
+    /* Network layer. */
+    if (flow->l2.dlType == htons(ETH_TYPE_IPV4)) {
+        struct IPHdr ip_storage;
+        const struct IPHdr *nh;
+        IpKey *ipKey = &flow->ipKey;
+
+        flow->l2.keyLen += OVS_IP_KEY_SIZE;
+        layers->isIPv4 = 1;
+        nh = OvsGetIp(packet, layers->l3Offset, &ip_storage);
+        if (nh) {
+            layers->l4Offset = layers->l3Offset + nh->ihl * 4;
+
+            ipKey->nwSrc = nh->saddr;
+            ipKey->nwDst = nh->daddr;
+            ipKey->nwProto = nh->protocol;
+
+            ipKey->nwTos = nh->tos;
+            if (nh->frag_off & htons(IP_MF | IP_OFFSET)) {
+                ipKey->nwFrag = OVSWIN_NW_FRAG_ANY;
+                if (nh->frag_off & htons(IP_OFFSET)) {
+                    ipKey->nwFrag |= OVSWIN_NW_FRAG_LATER;
+                }
+            }
+            else {
+                ipKey->nwFrag = 0;
+            }
+
+            ipKey->nwTtl = nh->ttl;
+            ipKey->l4.tpSrc = 0;
+            ipKey->l4.tpDst = 0;
+
+            if (!(nh->frag_off & htons(IP_OFFSET))) {
+                if (ipKey->nwProto == SOCKET_IPPROTO_TCP) {
+                    OvsParseTcp(packet, &ipKey->l4, layers);
+                }
+                else if (ipKey->nwProto == SOCKET_IPPROTO_UDP) {
+                    OvsParseUdp(packet, &ipKey->l4, layers);
+                }
+                else if (ipKey->nwProto == SOCKET_IPPROTO_ICMP) {
+                    ICMPHdr icmpStorage;
+                    const ICMPHdr *icmp;
+
+                    icmp = OvsGetIcmp(packet, layers->l4Offset, &icmpStorage);
+                    if (icmp) {
+                        ipKey->l4.tpSrc = htons(icmp->type);
+                        ipKey->l4.tpDst = htons(icmp->code);
+                        layers->l7Offset = layers->l4Offset + sizeof *icmp;
+                    }
+                }
+            }
+        }
+        else {
+            ((UINT64 *)ipKey)[0] = 0;
+            ((UINT64 *)ipKey)[1] = 0;
+        }
+    }
+    else if (flow->l2.dlType == htons(ETH_TYPE_IPV6)) {
+        NDIS_STATUS status;
+        flow->l2.keyLen += OVS_IPV6_KEY_SIZE;
+        status = OvsParseIPv6(packet, flow, layers);
+        if (status != NDIS_STATUS_SUCCESS) {
+            memset(&flow->ipv6Key, 0, sizeof(Ipv6Key));
+            return status;
+        }
+        layers->isIPv6 = 1;
+        flow->ipv6Key.l4.tpSrc = 0;
+        flow->ipv6Key.l4.tpDst = 0;
+        flow->ipv6Key.pad = 0;
+
+        if (flow->ipv6Key.nwProto == SOCKET_IPPROTO_TCP) {
+            OvsParseTcp(packet, &(flow->ipv6Key.l4), layers);
+        }
+        else if (flow->ipv6Key.nwProto == SOCKET_IPPROTO_UDP) {
+            OvsParseUdp(packet, &(flow->ipv6Key.l4), layers);
+        }
+        else if (flow->ipv6Key.nwProto == SOCKET_IPPROTO_ICMPV6) {
+            OvsParseIcmpV6(packet, flow, layers);
+            flow->l2.keyLen += (OVS_ICMPV6_KEY_SIZE - OVS_IPV6_KEY_SIZE);
+        }
+    }
+    else if (flow->l2.dlType == htons(ETH_TYPE_ARP)) {
+        EtherArp arpStorage;
+        const EtherArp *arp;
+        ArpKey *arpKey = &flow->arpKey;
+        ((UINT64 *)arpKey)[0] = 0;
+        ((UINT64 *)arpKey)[1] = 0;
+        ((UINT64 *)arpKey)[2] = 0;
+        flow->l2.keyLen += OVS_ARP_KEY_SIZE;
+        arp = OvsGetArp(packet, layers->l3Offset, &arpStorage);
+        if (arp && arp->ea_hdr.ar_hrd == htons(1) &&
+            arp->ea_hdr.ar_pro == htons(ETH_TYPE_IPV4) &&
+            arp->ea_hdr.ar_hln == ETH_ADDR_LENGTH &&
+            arp->ea_hdr.ar_pln == 4) {
+            /* We only match on the lower 8 bits of the opcode. */
+            if (ntohs(arp->ea_hdr.ar_op) <= 0xff) {
+                arpKey->nwProto = (UINT8)ntohs(arp->ea_hdr.ar_op);
+            }
+            if (arpKey->nwProto == ARPOP_REQUEST
+                || arpKey->nwProto == ARPOP_REPLY) {
+                memcpy(&arpKey->nwSrc, arp->arp_spa, 4);
+                memcpy(&arpKey->nwDst, arp->arp_tpa, 4);
+                memcpy(arpKey->arpSha, arp->arp_sha, ETH_ADDR_LENGTH);
+                memcpy(arpKey->arpTha, arp->arp_tha, ETH_ADDR_LENGTH);
+            }
+        }
+    }
+
+    return NDIS_STATUS_SUCCESS;
+}
 
 /*
  *----------------------------------------------------------------------------
@@ -190,6 +400,8 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
     POVS_VXLAN_VPORT vportVxlan;
     UINT32 headRoom = OvsGetVxlanTunHdrSize();
     UINT32 packetLength;
+    vportVxlan = (POVS_VXLAN_VPORT)GetOvsVportPriv(vport);
+    ASSERT(vportVxlan);
 
     /*
      * XXX: the assumption currently is that the NBL is owned by OVS, and
@@ -198,25 +410,39 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
      */
     curNb = NET_BUFFER_LIST_FIRST_NB(curNbl);
     packetLength = NET_BUFFER_DATA_LENGTH(curNb);
+    OvsExtractLayers(curNbl, layers);
+
     if (layers->isTcp) {
         NDIS_TCP_LARGE_SEND_OFFLOAD_NET_BUFFER_LIST_INFO tsoInfo;
 
         tsoInfo.Value = NET_BUFFER_LIST_INFO(curNbl,
                 TcpLargeSendNetBufferListInfo);
         OVS_LOG_TRACE("MSS %u packet len %u", tsoInfo.LsoV1Transmit.MSS, packetLength);
-        if (tsoInfo.LsoV1Transmit.MSS) {
-            OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
-            *newNbl = OvsTcpSegmentNBL(switchContext, curNbl, layers,
-                        tsoInfo.LsoV1Transmit.MSS, headRoom);
-            if (*newNbl == NULL) {
-                OVS_LOG_ERROR("Unable to segment NBL");
-                return NDIS_STATUS_FAILURE;
+        switch (tsoInfo.Transmit.Type) {
+        case NDIS_TCP_LARGE_SEND_OFFLOAD_V1_TYPE:
+            if (tsoInfo.LsoV1Transmit.MSS) {
+                OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
+                *newNbl = OvsTcpSegmentNBL(switchContext, curNbl, layers,
+                            tsoInfo.LsoV1Transmit.MSS, headRoom);
+                if (*newNbl == NULL) {
+                    OVS_LOG_ERROR("Unable to segment NBL");
+                    return NDIS_STATUS_FAILURE;
+                }
             }
+            break;
+        case NDIS_TCP_LARGE_SEND_OFFLOAD_V2_TYPE:
+            if (tsoInfo.LsoV2Transmit.MSS) {
+                OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
+                *newNbl = OvsTcpSegmentNBL(switchContext, curNbl, layers,
+                    tsoInfo.LsoV2Transmit.MSS, headRoom);
+                if (*newNbl == NULL) {
+                    OVS_LOG_ERROR("Unable to segment NBL");
+                    return NDIS_STATUS_FAILURE;
+                }
+            }
+            break;
         }
     }
-
-    vportVxlan = (POVS_VXLAN_VPORT) GetOvsVportPriv(vport);
-    ASSERT(vportVxlan);
 
     /* If we didn't split the packet above, make a copy now */
     if (*newNbl == NULL) {
@@ -226,9 +452,71 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
             OVS_LOG_ERROR("Unable to copy NBL");
             return NDIS_STATUS_FAILURE;
         }
+
+        curNb = NET_BUFFER_LIST_FIRST_NB(*newNbl);
+        EthHdr *eth;
+
+        eth = (EthHdr *)NdisGetDataBuffer(
+            curNb,
+            sizeof(EthHdr),
+            NULL, // No storage provided or needed
+            1, // No alignment requirement
+            0
+            );
+
+        if (eth->Type == ntohs(NDIS_ETH_TYPE_IPV4)) {
+            IPHdr *ip = (IPHdr *)((PCHAR)eth + sizeof *eth);
+
+            ip->check = 0;
+            ip->check = IPChecksum((UINT8 *)ip, sizeof *ip, 0);
+
+            if (ip->protocol == IPPROTO_TCP) {
+                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
+                tcp->check = 0;
+                tcp->check =
+                    IPPseudoChecksum(&ip->saddr, &ip->daddr,
+                    IPPROTO_TCP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
+                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
+                    (UINT32)(sizeof *eth + sizeof *ip));
+            }
+            else if (ip->protocol == IPPROTO_UDP) {
+                UDPHdr *udp = (UDPHdr *)((PCHAR)ip + sizeof *ip);
+                udp->check = 0;
+                udp->check =
+                    IPPseudoChecksum(&ip->saddr, &ip->daddr,
+                    IPPROTO_UDP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
+                udp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
+                    (UINT32)(sizeof *eth + sizeof *ip));
+            }
+        }
+        if (eth->Type == ntohs(NDIS_ETH_TYPE_IPV6)) {
+            IPv6Hdr *ip = (IPv6Hdr *)((PCHAR)eth + sizeof *eth);
+
+            if (ip->nexthdr == IPPROTO_TCP) {
+                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
+                tcp->check = 0;
+                tcp->check =
+                    IPv6PseudoChecksum((UINT32 *)&ip->saddr, (UINT32 *)&ip->daddr,
+                    IPPROTO_TCP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
+                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
+                    (UINT32)(sizeof *eth + sizeof *ip));
+            }
+            else if (ip->nexthdr == IPPROTO_UDP) {
+                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
+                tcp->check = 0;
+                tcp->check =
+                    IPv6PseudoChecksum((UINT32 *)&ip->saddr, (UINT32 *)&ip->daddr,
+                    IPPROTO_UDP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
+                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
+                    (UINT32)(sizeof *eth + sizeof *ip));
+            }
+        }
     }
 
     curNbl = *newNbl;
+    NET_BUFFER_LIST_INFO(curNbl, TcpIpChecksumNetBufferListInfo) = 0;
+    NET_BUFFER_LIST_INFO(curNbl, TcpLargeSendNetBufferListInfo) = 0;
+
     for (curNb = NET_BUFFER_LIST_FIRST_NB(curNbl); curNb != NULL;
             curNb = curNb->Next) {
         status = NdisRetreatNetBufferDataStart(curNb, headRoom, 0, NULL);
@@ -257,9 +545,6 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
                        sizeof ethHdr->Destination + sizeof ethHdr->Source);
         ethHdr->Type = htons(ETH_TYPE_IPV4);
 
-        // XXX: question: there are fields in the OvsIPv4TunnelKey for ttl and such,
-        // should we use those values instead? or will they end up being
-        // uninitialized;
         /* IP header */
         ipHdr = (IPHdr *)((PCHAR)ethHdr + sizeof *ethHdr);
 
