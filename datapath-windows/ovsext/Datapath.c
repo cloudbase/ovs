@@ -1163,11 +1163,11 @@ OvsSubscribeEventCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     OVS_EVENT_SUBSCRIBE request;
     BOOLEAN rc;
     UINT8 join;
-    PNL_ATTR attrs[2];
-    const NL_POLICY policy[] =  {
+    const NL_POLICY policy[] = {
         [OVS_NL_ATTR_MCAST_GRP] = {.type = NL_A_U32 },
         [OVS_NL_ATTR_MCAST_JOIN] = {.type = NL_A_U8 },
         };
+    PNL_ATTR attrs[ARRAY_SIZE(policy)] = { NULL };
 
     UNREFERENCED_PARAMETER(replyLen);
 
@@ -1176,7 +1176,7 @@ OvsSubscribeEventCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     POVS_MESSAGE msgIn = (POVS_MESSAGE)usrParamsCtx->inputBuffer;
 
     rc = NlAttrParse(&msgIn->nlMsg, sizeof (*msgIn),
-         NlMsgAttrsLen((PNL_MSG_HDR)msgIn), policy, attrs, ARRAY_SIZE(attrs));
+         NlMsgAttrsLen((PNL_MSG_HDR)msgIn), policy, attrs, ARRAY_SIZE(policy));
     if (!rc) {
         status = STATUS_INVALID_PARAMETER;
         goto done;
@@ -1327,12 +1327,12 @@ HandleDpTransactionCommon(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     NTSTATUS status = STATUS_SUCCESS;
     NL_BUFFER nlBuf;
     NL_ERROR nlError = NL_ERROR_SUCCESS;
-    static const NL_POLICY ovsDatapathSetPolicy[] = {
+    static const NL_POLICY ovsDatapathSetPolicy[__OVS_DP_ATTR_MAX] = {
         [OVS_DP_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ },
         [OVS_DP_ATTR_UPCALL_PID] = { .type = NL_A_U32, .optional = TRUE },
         [OVS_DP_ATTR_USER_FEATURES] = { .type = NL_A_U32, .optional = TRUE },
     };
-    PNL_ATTR dpAttrs[ARRAY_SIZE(ovsDatapathSetPolicy)];
+    PNL_ATTR dpAttrs[ARRAY_SIZE(ovsDatapathSetPolicy)] = { NULL };
 
     UNREFERENCED_PARAMETER(msgOut);
 
@@ -1343,9 +1343,10 @@ HandleDpTransactionCommon(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     if (usrParamsCtx->ovsMsg->genlMsg.cmd == OVS_DP_CMD_SET ||
         usrParamsCtx->ovsMsg->genlMsg.cmd == OVS_DP_CMD_NEW) {
         if (!NlAttrParse((PNL_MSG_HDR)msgIn,
-                        NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
-                        NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
-                        ovsDatapathSetPolicy, dpAttrs, ARRAY_SIZE(dpAttrs))) {
+                         NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
+                         NlMsgAttrsLen((PNL_MSG_HDR)msgIn),
+                         ovsDatapathSetPolicy, dpAttrs,
+                         ARRAY_SIZE(ovsDatapathSetPolicy))) {
             return STATUS_INVALID_PARAMETER;
         }
 
@@ -1641,7 +1642,7 @@ OvsSubscribePacketCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         [OVS_NL_ATTR_PACKET_PID] = {.type = NL_A_U32 },
         [OVS_NL_ATTR_PACKET_SUBSCRIBE] = {.type = NL_A_U8 }
         };
-    PNL_ATTR attrs[ARRAY_SIZE(policy)];
+    PNL_ATTR attrs[ARRAY_SIZE(policy)] = { NULL };
 
     UNREFERENCED_PARAMETER(replyLen);
 
@@ -1650,7 +1651,8 @@ OvsSubscribePacketCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     POVS_MESSAGE msgIn = (POVS_MESSAGE)usrParamsCtx->inputBuffer;
 
     rc = NlAttrParse(&msgIn->nlMsg, sizeof (*msgIn),
-         NlMsgAttrsLen((PNL_MSG_HDR)msgIn), policy, attrs, ARRAY_SIZE(attrs));
+                     NlMsgAttrsLen((PNL_MSG_HDR)msgIn), policy, attrs,
+                                   ARRAY_SIZE(policy));
     if (!rc) {
         status = STATUS_INVALID_PARAMETER;
         goto done;
