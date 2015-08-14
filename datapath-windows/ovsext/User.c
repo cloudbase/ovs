@@ -47,7 +47,7 @@ OVS_USER_STATS ovsUserStats;
 
 static VOID _MapNlAttrToOvsPktExec(PNL_ATTR *nlAttrs, PNL_ATTR *keyAttrs,
                                    OvsPacketExecute  *execute);
-extern NL_POLICY nlFlowKeyPolicy[];
+extern NL_POLICY nlFlowKeyPolicy[__OVS_KEY_ATTR_MAX];
 
 static __inline VOID
 OvsAcquirePidHashLock()
@@ -317,16 +317,13 @@ OvsNlExecuteCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     PGENL_MSG_HDR genlMsgHdr = &(msgIn->genlMsg);
     POVS_HDR ovsHdr = &(msgIn->ovsHdr);
 
-    PNL_ATTR nlAttrs[__OVS_PACKET_ATTR_MAX];
-    PNL_ATTR keyAttrs[__OVS_KEY_ATTR_MAX] = {NULL};
-
     UINT32 attrOffset = NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN;
     UINT32 keyAttrOffset = 0;
     OvsPacketExecute execute;
     NL_ERROR nlError = NL_ERROR_SUCCESS;
     NL_BUFFER nlBuf;
 
-    static const NL_POLICY nlPktExecPolicy[] = {
+    static const NL_POLICY nlPktExecPolicy[__OVS_PACKET_ATTR_MAX] = {
         [OVS_PACKET_ATTR_PACKET] = {.type = NL_A_UNSPEC, .optional = FALSE},
         [OVS_PACKET_ATTR_KEY] = {.type = NL_A_UNSPEC, .optional = FALSE},
         [OVS_PACKET_ATTR_ACTIONS] = {.type = NL_A_UNSPEC, .optional = FALSE},
@@ -334,12 +331,14 @@ OvsNlExecuteCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         [OVS_PACKET_ATTR_EGRESS_TUN_KEY] = {.type = NL_A_UNSPEC,
                                             .optional = TRUE}
     };
+    PNL_ATTR pktAttrs[ARRAY_SIZE(nlPktExecPolicy)] = { NULL };
+    PNL_ATTR keyAttrs[ARRAY_SIZE(nlFlowKeyPolicy)] = { NULL };
 
     RtlZeroMemory(&execute, sizeof(OvsPacketExecute));
 
     /* Get all the top level Flow attributes */
     if ((NlAttrParse(nlMsgHdr, attrOffset, NlMsgAttrsLen(nlMsgHdr),
-                     nlPktExecPolicy, nlAttrs, ARRAY_SIZE(nlAttrs)))
+                     nlPktExecPolicy, pktAttrs, ARRAY_SIZE(nlPktExecPolicy)))
                      != TRUE) {
         OVS_LOG_ERROR("Attr Parsing failed for msg: %p",
                        nlMsgHdr);
@@ -347,14 +346,14 @@ OvsNlExecuteCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         goto done;
     }
 
-    keyAttrOffset = (UINT32)((PCHAR)nlAttrs[OVS_PACKET_ATTR_KEY] -
+    keyAttrOffset = (UINT32)((PCHAR) pktAttrs[OVS_PACKET_ATTR_KEY] -
                     (PCHAR)nlMsgHdr);
 
     /* Get flow keys attributes */
     if ((NlAttrParseNested(nlMsgHdr, keyAttrOffset,
-                           NlAttrLen(nlAttrs[OVS_PACKET_ATTR_KEY]),
+                           NlAttrLen(pktAttrs[OVS_PACKET_ATTR_KEY]),
                            nlFlowKeyPolicy, keyAttrs,
-                           ARRAY_SIZE(keyAttrs))) != TRUE) {
+                           ARRAY_SIZE(nlFlowKeyPolicy))) != TRUE) {
         OVS_LOG_ERROR("Key Attr Parsing failed for msg: %p", nlMsgHdr);
         status = STATUS_UNSUCCESSFUL;
         goto done;
@@ -362,7 +361,7 @@ OvsNlExecuteCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 
     execute.dpNo = ovsHdr->dp_ifindex;
 
-    _MapNlAttrToOvsPktExec(nlAttrs, keyAttrs, &execute);
+    _MapNlAttrToOvsPktExec(pktAttrs, keyAttrs, &execute);
 
     status = OvsExecuteDpIoctl(&execute);
 
