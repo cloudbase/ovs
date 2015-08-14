@@ -1116,7 +1116,8 @@ GetSegmentHeaderInfo(PNET_BUFFER_LIST nbl,
  * --------------------------------------------------------------------------
  */
 static NDIS_STATUS
-FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber)
+FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber,
+                 BOOLEAN fin, BOOLEAN psh)
 {
     EthHdr *dstEth;
     IPHdr *dstIP;
@@ -1153,6 +1154,14 @@ FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber)
     dstTCP->check = CalculateChecksumNB(nb,
             (UINT16)(NET_BUFFER_DATA_LENGTH(nb) - sizeof *dstEth - dstIP->ihl * 4),
             sizeof *dstEth + dstIP->ihl * 4);
+
+    if (dstTCP->fin) {
+        dstTCP->fin = fin == TRUE ? 1 : 0;
+    }
+    if (dstTCP->psh) {
+        dstTCP->psh = psh == TRUE ? 1 : 0;
+    }
+
     return STATUS_SUCCESS;
 }
 
@@ -1190,6 +1199,8 @@ OvsTcpSegmentNBL(PVOID ovsContext,
     NDIS_STATUS status;
     UINT16 segmentSize;
     ULONG copiedSize;
+    BOOLEAN fin = FALSE;
+    BOOLEAN psh = FALSE;
 
     srcCtx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(nbl);
     if (srcCtx == NULL || srcCtx->magic != OVS_CTX_MAGIC) {
@@ -1232,7 +1243,9 @@ OvsTcpSegmentNBL(PVOID ovsContext,
             goto nblcopy_error;
         }
 
-        status = FixSegmentHeader(newNb, segmentSize, seqNumber);
+        psh = fin = NET_BUFFER_NEXT_NB(newNb) == NULL ? TRUE : FALSE;
+
+        status = FixSegmentHeader(newNb, segmentSize, seqNumber, fin, psh);
         if (status != NDIS_STATUS_SUCCESS) {
             goto nblcopy_error;
         }
