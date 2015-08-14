@@ -975,6 +975,9 @@ OvsOutputBeforeSetAction(OvsForwardingContext *ovsFwdCtx)
            ovsFwdCtx->tunnelTxNic != NULL || ovsFwdCtx->tunnelRxNic != NULL);
 
     /* Send the original packet out */
+    UINT32 tempVportNo = ovsFwdCtx->srcVportNo;
+    UINT32 tempSourcePortId = ovsFwdCtx->fwdDetail->SourcePortId;
+    UINT32 tempNicIndex = ovsFwdCtx->fwdDetail->SourceNicIndex;
     status = OvsOutputForwardingCtx(ovsFwdCtx);
     ASSERT(ovsFwdCtx->curNbl == NULL);
     ASSERT(ovsFwdCtx->destPortsSizeOut == 0);
@@ -996,6 +999,9 @@ OvsOutputBeforeSetAction(OvsForwardingContext *ovsFwdCtx)
                                       NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
                                       ovsFwdCtx->completionList,
                                       &ovsFwdCtx->layers, FALSE);
+        ovsFwdCtx->srcVportNo = tempVportNo;
+        ovsFwdCtx->fwdDetail->SourcePortId = tempSourcePortId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = tempNicIndex;
     }
 
     return status;
