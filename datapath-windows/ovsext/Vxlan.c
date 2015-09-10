@@ -403,11 +403,6 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
     vportVxlan = (POVS_VXLAN_VPORT)GetOvsVportPriv(vport);
     ASSERT(vportVxlan);
 
-    /*
-     * XXX: the assumption currently is that the NBL is owned by OVS, and
-     * headroom has already been allocated as part of allocating the NBL and
-     * MDL.
-     */
     curNb = NET_BUFFER_LIST_FIRST_NB(curNbl);
     packetLength = NET_BUFFER_DATA_LENGTH(curNb);
     OvsExtractLayers(curNbl, layers);
@@ -416,7 +411,7 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
         NDIS_TCP_LARGE_SEND_OFFLOAD_NET_BUFFER_LIST_INFO tsoInfo;
 
         tsoInfo.Value = NET_BUFFER_LIST_INFO(curNbl,
-                TcpLargeSendNetBufferListInfo);
+                                             TcpLargeSendNetBufferListInfo);
         OVS_LOG_TRACE("MSS %u packet len %u", tsoInfo.LsoV1Transmit.MSS, packetLength);
         switch (tsoInfo.Transmit.Type) {
         case NDIS_TCP_LARGE_SEND_OFFLOAD_V1_TYPE:
@@ -428,6 +423,7 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
                     OVS_LOG_ERROR("Unable to segment NBL");
                     return NDIS_STATUS_FAILURE;
                 }
+                NET_BUFFER_LIST_INFO(curNbl, TcpLargeSendNetBufferListInfo) = 0;
             }
             break;
         case NDIS_TCP_LARGE_SEND_OFFLOAD_V2_TYPE:
@@ -439,6 +435,7 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
                     OVS_LOG_ERROR("Unable to segment NBL");
                     return NDIS_STATUS_FAILURE;
                 }
+                NET_BUFFER_LIST_INFO(curNbl, TcpLargeSendNetBufferListInfo) = 0;
             }
             break;
         }
@@ -454,68 +451,63 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
         }
 
         curNb = NET_BUFFER_LIST_FIRST_NB(*newNbl);
-        EthHdr *eth;
+        curMdl = NET_BUFFER_CURRENT_MDL(curNb);
+        bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority);
+        bufferStart += NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
 
-        eth = (EthHdr *)NdisGetDataBuffer(
-            curNb,
-            sizeof(EthHdr),
-            NULL, // No storage provided or needed
-            1, // No alignment requirement
-            0
-            );
+        NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
+        csumInfo.Value = NET_BUFFER_LIST_INFO(curNbl,
+                                              TcpIpChecksumNetBufferListInfo);
 
-        if (eth->Type == ntohs(NDIS_ETH_TYPE_IPV4)) {
-            IPHdr *ip = (IPHdr *)((PCHAR)eth + sizeof *eth);
+        if (layers->isIPv4) {
+            IPHdr *ip = (IPHdr *)(bufferStart + layers->l3Offset);
 
-            ip->check = 0;
-            ip->check = IPChecksum((UINT8 *)ip, sizeof *ip, 0);
-
-            if (ip->protocol == IPPROTO_TCP) {
-                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
-                tcp->check = 0;
-                tcp->check =
-                    IPPseudoChecksum(&ip->saddr, &ip->daddr,
-                    IPPROTO_TCP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
-                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
-                    (UINT32)(sizeof *eth + sizeof *ip));
+            if (csumInfo.Transmit.IpHeaderChecksum) {
+                ip->check = 0;
+                ip->check = IPChecksum((UINT8 *)ip, 4 * ip->ihl, 0);
             }
-            else if (ip->protocol == IPPROTO_UDP) {
+
+            if (layers->isTcp && csumInfo.Transmit.TcpChecksum) {
+                UINT16 csumLength = (UINT16)(packetLength - layers->l4Offset);
+                TCPHdr *tcp = (TCPHdr *)(bufferStart + layers->l4Offset);
+                tcp->check = IPPseudoChecksum(&ip->saddr, &ip->daddr,
+                                              IPPROTO_TCP, csumLength);
+                tcp->check = CalculateChecksumNB(curNb, csumLength,
+                                                 (UINT32)(layers->l4Offset));
+            }
+            else if (layers->isUdp && csumInfo.Transmit.UdpChecksum) {
+                UINT16 csumLength = (UINT16)(packetLength - layers->l4Offset);
                 UDPHdr *udp = (UDPHdr *)((PCHAR)ip + sizeof *ip);
-                udp->check = 0;
-                udp->check =
-                    IPPseudoChecksum(&ip->saddr, &ip->daddr,
-                    IPPROTO_UDP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
-                udp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
-                    (UINT32)(sizeof *eth + sizeof *ip));
+                udp->check = IPPseudoChecksum(&ip->saddr, &ip->daddr,
+                                              IPPROTO_UDP, csumLength);
+                udp->check = CalculateChecksumNB(curNb, csumLength,
+                                                 (UINT32)(layers->l4Offset));
             }
-        }
-        if (eth->Type == ntohs(NDIS_ETH_TYPE_IPV6)) {
-            IPv6Hdr *ip = (IPv6Hdr *)((PCHAR)eth + sizeof *eth);
+        } else if (layers->isIPv6) {
+            IPv6Hdr *ip = (IPv6Hdr *)(bufferStart + layers->l3Offset);
 
-            if (ip->nexthdr == IPPROTO_TCP) {
-                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
-                tcp->check = 0;
-                tcp->check =
-                    IPv6PseudoChecksum((UINT32 *)&ip->saddr, (UINT32 *)&ip->daddr,
-                    IPPROTO_TCP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
-                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
-                    (UINT32)(sizeof *eth + sizeof *ip));
+            if (layers->isTcp && csumInfo.Transmit.TcpChecksum) {
+                UINT16 csumLength = (UINT16)(packetLength - layers->l4Offset);
+                TCPHdr *tcp = (TCPHdr *)(bufferStart + layers->l4Offset);
+                tcp->check = IPv6PseudoChecksum((UINT32 *) &ip->saddr,
+                                                (UINT32 *) &ip->daddr,
+                                                IPPROTO_TCP, csumLength);
+                tcp->check = CalculateChecksumNB(curNb, csumLength,
+                                                 (UINT32)(layers->l4Offset));
             }
-            else if (ip->nexthdr == IPPROTO_UDP) {
-                TCPHdr *tcp = (TCPHdr *)((PCHAR)ip + sizeof *ip);
-                tcp->check = 0;
-                tcp->check =
-                    IPv6PseudoChecksum((UINT32 *)&ip->saddr, (UINT32 *)&ip->daddr,
-                    IPPROTO_UDP, (UINT16)(packetLength - sizeof *eth - sizeof *ip));
-                tcp->check = CalculateChecksumNB(curNb, (UINT16)(packetLength - sizeof *eth - sizeof *ip),
-                    (UINT32)(sizeof *eth + sizeof *ip));
+            else if (layers->isUdp && csumInfo.Transmit.UdpChecksum) {
+                UINT16 csumLength = (UINT16)(packetLength - layers->l4Offset);
+                UDPHdr *udp = (UDPHdr *)((PCHAR)ip + sizeof *ip);
+                udp->check = IPPseudoChecksum((UINT32 *) &ip->saddr,
+                                              (UINT32 *)&ip->daddr,
+                                              IPPROTO_UDP, csumLength);
+                udp->check = CalculateChecksumNB(curNb, csumLength,
+                                                 (UINT32)(layers->l4Offset));
             }
         }
     }
 
     curNbl = *newNbl;
-    NET_BUFFER_LIST_INFO(curNbl, TcpIpChecksumNetBufferListInfo) = 0;
-    NET_BUFFER_LIST_INFO(curNbl, TcpLargeSendNetBufferListInfo) = 0;
 
     for (curNb = NET_BUFFER_LIST_FIRST_NB(curNbl); curNb != NULL;
             curNb = curNb->Next) {
