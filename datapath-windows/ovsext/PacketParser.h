@@ -67,8 +67,6 @@ static UINT16
 OvsGetTcpCtl(const NET_BUFFER_LIST *packet, // IN
              const POVS_PACKET_HDR_INFO layers) // IN
 {
-#define TCP_CTL_OFS 12                // Offset of "ctl" field in TCP header.
-#define TCP_FLAGS(CTL) ((CTL) & 0x3f) // Obtain TCP flags from CTL.
 
     const UINT16 *ctl;
     UINT16 storage;
@@ -78,16 +76,17 @@ OvsGetTcpCtl(const NET_BUFFER_LIST *packet, // IN
     return ctl ? *ctl : 0;
 }
 
-
-static UINT8
+static UINT16
 OvsGetTcpFlags(const NET_BUFFER_LIST *packet,    // IN
-               const OvsFlowKey *key,   // IN
                const POVS_PACKET_HDR_INFO layers) // IN
 {
-    UNREFERENCED_PARAMETER(key); // should be removed later
-
     if (layers->isTcp) {
-        return TCP_FLAGS(OvsGetTcpCtl(packet, layers));
+        const UINT16 *ctl;
+        UINT16 storage;
+
+        ctl = OvsGetPacketBytes(packet, sizeof *ctl, layers->l4Offset + TCP_CTL_OFS,
+                                &storage);
+        return TCP_FLAGS_BE16(ctl);
     } else {
         return 0;
     }

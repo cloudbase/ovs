@@ -1083,11 +1083,19 @@ _MapFlowIpv4KeyToNlKey(PNL_BUFFER nlBuf, IpKey *ipv4FlowPutKey)
     switch (ipv4Key.ipv4_proto) {
         case IPPROTO_TCP: {
             struct ovs_key_tcp tcpKey;
+            UINT16 tcpFlags = 0;
             tcpKey.tcp_src = ipv4FlowPutKey->l4.tpSrc;
             tcpKey.tcp_dst = ipv4FlowPutKey->l4.tpDst;
             if (!NlMsgPutTailUnspec(nlBuf, OVS_KEY_ATTR_TCP,
                                     (PCHAR)(&tcpKey),
                                     sizeof(tcpKey))) {
+                rc = STATUS_UNSUCCESSFUL;
+                goto done;
+            }
+            tcpFlags = ipv4FlowPutKey->l4.flags;
+            if (!NlMsgPutTailUnspec(nlBuf, OVS_KEY_ATTR_TCP_FLAGS,
+                                   (PCHAR)(&tcpFlags),
+                                    sizeof(tcpFlags))) {
                 rc = STATUS_UNSUCCESSFUL;
                 goto done;
             }
@@ -1176,11 +1184,19 @@ _MapFlowIpv6KeyToNlKey(PNL_BUFFER nlBuf, Ipv6Key *ipv6FlowPutKey,
     switch (ipv6Key.ipv6_proto) {
         case IPPROTO_TCP: {
             struct ovs_key_tcp tcpKey;
+            UINT16 tcpFlags = 0;
             tcpKey.tcp_src = ipv6FlowPutKey->l4.tpSrc;
             tcpKey.tcp_dst = ipv6FlowPutKey->l4.tpDst;
             if (!NlMsgPutTailUnspec(nlBuf, OVS_KEY_ATTR_TCP,
                                     (PCHAR)(&tcpKey),
                                     sizeof(tcpKey))) {
+                rc = STATUS_UNSUCCESSFUL;
+                goto done;
+            }
+            tcpFlags = ipv6FlowPutKey->l4.flags;
+            if (!NlMsgPutTailUnspec(nlBuf, OVS_KEY_ATTR_TCP_FLAGS,
+                                   (PCHAR)(&tcpFlags),
+                                   sizeof(tcpFlags))) {
                 rc = STATUS_UNSUCCESSFUL;
                 goto done;
             }
@@ -1517,6 +1533,12 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
                 ipv4FlowPutKey->l4.tpDst = tcpKey->tcp_dst;
             }
 
+            if (keyAttrs[OVS_KEY_ATTR_TCP_FLAGS]) {
+                const UINT16 *flags;
+                flags = NlAttrGet(keyAttrs[OVS_KEY_ATTR_TCP_FLAGS]);
+                ipv4FlowPutKey->l4.flags = *flags;
+            }
+
             if (keyAttrs[OVS_KEY_ATTR_UDP]) {
                 const struct ovs_key_udp *udpKey;
                 udpKey = NlAttrGet(keyAttrs[OVS_KEY_ATTR_UDP]);
@@ -1568,6 +1590,12 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
                 ipv6FlowPutKey->l4.tpDst = tcpKey->tcp_dst;
             }
 
+            if (keyAttrs[OVS_KEY_ATTR_TCP_FLAGS]) {
+                const UINT16 *flags;
+                flags = NlAttrGet(keyAttrs[OVS_KEY_ATTR_TCP_FLAGS]);
+                ipv6FlowPutKey->l4.flags = *flags;
+            }
+
             if (keyAttrs[OVS_KEY_ATTR_UDP]) {
                 const struct ovs_key_udp *udpKey;
                 udpKey = NlAttrGet(keyAttrs[OVS_KEY_ATTR_UDP]);
@@ -1611,8 +1639,6 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
 
                 destKey->l2.keyLen += OVS_IPV6_KEY_SIZE;
             }
-
-            ipv6FlowPutKey->pad = 0;
         }
         break;
     }
@@ -1635,9 +1661,6 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
             /* Kernel datapath assumes 'arpFlowPutKey->nwProto' to be in host
              * order. */
             arpFlowPutKey->nwProto = (UINT8)ntohs((arpKey->arp_op));
-            arpFlowPutKey->pad[0] = 0;
-            arpFlowPutKey->pad[1] = 0;
-            arpFlowPutKey->pad[2] = 0;
             destKey->l2.keyLen += OVS_ARP_KEY_SIZE;
         }
         break;
@@ -1964,7 +1987,7 @@ OvsFlowUsed(OvsFlow *flow,
     flow->used = tickCount.QuadPart;
     flow->packetCount++;
     flow->byteCount += OvsPacketLenNBL(packet);
-    flow->tcpFlags |= OvsGetTcpFlags(packet, &flow->key, layers);
+    flow->tcpFlags |= (UINT8)OvsGetTcpFlags(packet, layers);
 }
 
 
@@ -2351,6 +2374,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
             ipKey->nwTtl = nh->ttl;
             ipKey->l4.tpSrc = 0;
             ipKey->l4.tpDst = 0;
+            ipKey->l4.flags = 0;
 
             if (!(nh->frag_off & htons(IP_OFFSET))) {
                 if (ipKey->nwProto == SOCKET_IPPROTO_TCP) {
@@ -2388,7 +2412,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
         layers->isIPv6 = 1;
         flow->ipv6Key.l4.tpSrc = 0;
         flow->ipv6Key.l4.tpDst = 0;
-        flow->ipv6Key.pad = 0;
+        flow->ipv6Key.l4.flags = 0;
 
         if (flow->ipv6Key.nwProto == SOCKET_IPPROTO_TCP) {
             OvsParseTcp(packet, &(flow->ipv6Key.l4), layers);
@@ -2475,11 +2499,11 @@ __inline BOOLEAN
 FlowMemoryEqual(UINT64 *src, UINT64 *dst, UINT32 size)
 {
     UINT32 i;
-    ASSERT((size & 0x7) == 0);
-    ASSERT(((UINT64)src & 0x7) == 0);
-    ASSERT(((UINT64)dst & 0x7) == 0);
-    for (i = 0; i < (size >> 3); i++) {
-        if (src[i] != dst[i]) {
+    //XXX: do 64 bit compares here
+    UINT8 *first = (UINT8 *)src;
+    UINT8 *second = (UINT8 *)dst;
+    for (i = 0; i < size; i++) {
+        if (first[i] != second[i]) {
             return FALSE;
         }
     }
@@ -2535,9 +2559,7 @@ AddFlow(OVS_DATAPATH *datapath, OvsFlow *flow)
      */
     KeMemoryBarrier();
 
-    //KeAcquireSpinLock(&FilterDeviceExtension->NblQueueLock, &oldIrql);
     InsertTailList(head, &flow->ListEntry);
-    //KeReleaseSpinLock(&FilterDeviceExtension->NblQueueLock, oldIrql);
 
     datapath->nFlows++;
 
