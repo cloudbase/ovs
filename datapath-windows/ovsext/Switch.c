@@ -345,14 +345,13 @@ OvsExtPause(NDIS_HANDLE filterModuleContext,
     OVS_LOG_TRACE("Enter: filterModuleContext %p",
                   filterModuleContext);
 
-    ASSERT(switchContext->dataFlowState == OvsSwitchRunning);
     switchContext->dataFlowState = OvsSwitchPaused;
     KeMemoryBarrier();
     while(switchContext->pendingOidCount > 0) {
         NdisMSleep(1000);
     }
 
-    OVS_LOG_TRACE("Exit: OvsDetach Successfully");
+    OVS_LOG_TRACE("Exit: OvsExtPause Successfully");
     return NDIS_STATUS_SUCCESS;
 }
 
@@ -603,6 +602,11 @@ OvsExtNetPnPEvent(NDIS_HANDLE filterModuleContext,
                           "status: %s", switchContext,
                           status ? "TRUE" : "FALSE");
         }
+    }
+
+    if (netPnPEvent->NetPnPEvent.NetEvent == NetEventFilterPreDetach) {
+        switchContext->dataFlowState = OvsSwitchPaused;
+        KeMemoryBarrier();
     }
 
     status = NdisFNetPnPEvent(switchContext->NdisFilterHandle,
