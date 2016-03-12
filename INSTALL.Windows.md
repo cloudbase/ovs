@@ -72,9 +72,9 @@ or from a distribution tar ball.
   directories, etc. For example,
 
     % ./configure CC=./build-aux/cccl LD="`which link`" \
-      LIBS="-lws2_32 -liphlpapi" --prefix="C:/openvswitch/usr" \
-      --localstatedir="C:/openvswitch/var" --sysconfdir="C:/openvswitch/etc" \
-       --with-pthread="C:/pthread"
+      LIBS="-lws2_32 -liphlpapi -lwbemuuid -lole32 -loleaut32" \
+      --prefix="C:/openvswitch/usr" --localstatedir="C:/openvswitch/var" \
+      --sysconfdir="C:/openvswitch/etc" --with-pthread="C:/pthread"
 
     By default, the above enables compiler optimization for fast code.
     For default compiler optimization, pass the "--with-debug" configure
@@ -125,9 +125,10 @@ Note down the directory where OpenSSL is installed (e.g.: C:/OpenSSL-Win32).
 For example,
 
     % ./configure CC=./build-aux/cccl LD="`which link`"  \
-    LIBS="-lws2_32 -liphlpapi" --prefix="C:/openvswitch/usr" \
-    --localstatedir="C:/openvswitch/var" --sysconfdir="C:/openvswitch/etc" \
-    --with-pthread="C:/pthread" --enable-ssl --with-openssl="C:/OpenSSL-Win32"
+    LIBS="-lws2_32 -liphlpapi -lwbemuuid -lole32 -loleaut32" \
+    --prefix="C:/openvswitch/usr" --localstatedir="C:/openvswitch/var" \
+    --sysconfdir="C:/openvswitch/etc" --with-pthread="C:/pthread" \
+    --enable-ssl --with-openssl="C:/OpenSSL-Win32"
 
 * Run make for the ported executables.
 
@@ -142,10 +143,11 @@ level 'make' will invoke building the kernel datapath, if the
 For example,
 
     % ./configure CC=./build-aux/cccl LD="`which link`" \
-    LIBS="-lws2_32 -liphlpapi" --prefix="C:/openvswitch/usr" \
-    --localstatedir="C:/openvswitch/var" --sysconfdir="C:/openvswitch/etc" \
-    --with-pthread="C:/pthread" --enable-ssl \
-    --with-openssl="C:/OpenSSL-Win32" --with-vstudiotarget="<target type>"
+    LIBS="-lws2_32 -liphlpapi -lwbemuuid -lole32 -loleaut32" \
+    --prefix="C:/openvswitch/usr" --localstatedir="C:/openvswitch/var" \
+    --sysconfdir="C:/openvswitch/etc" --with-pthread="C:/pthread" \
+    --enable-ssl --with-openssl="C:/OpenSSL-Win32" \
+    --with-vstudiotarget="<target type>"
 
     Possible values for "<target type>" are:
     "Debug" and "Release"
@@ -180,14 +182,11 @@ during boot.  The following commands can be used:
 Note: you may have to restart the machine for the settings to take effect.
 
 03> In the Virtual Switch Manager configuration you can enable the Open vSwitch
-Extension on an existing switch or create a new switch.  If you are using an
-existing switch, make sure to enable the "Allow Management OS" option for VXLAN
-to work (covered later).
+Extension on an existing switch or create a new switch.
 
 The command to create a new switch named 'OVS-Extended-Switch' using a physical
 NIC named 'Ethernet 1' is:
-    % New-VMSwitch "OVS-Extended-Switch" -AllowManagementOS $true \
-                   -NetAdapterName "Ethernet 1"
+    % New-VMSwitch "OVS-Extended-Switch" -NetAdapterName "Ethernet 1"
 
 Note: you can obtain the list of physical NICs on the host using
 'Get-NetAdapter' command.
@@ -281,20 +280,20 @@ use that name('Ethernet0') as a special name to refer to that adapter.
 Note: Currently, we assume that the Hyper-V switch on which OVS extension is
 enabled has a single physical NIC connected to it.
 
-Internal port is the virtual adapter created on the Hyper-V switch using the
-'AllowManagementOS' setting.  This has already been setup while creating the
-switch using the instructions above.  In OVS for Hyper-V, we use a the name of
-that specific adapter as a special name to refer to that adapter. By default it
-is created under the following rule "vEthernet (<name of the switch>)".
+Internal ports are the virtual adapters created on the Hyper-V switch using the
+ovs-vsctl add-br <bridge> command. By default they are created under the
+following rule "<name of bridge>" and the adapters are disabled. One needs to
+enable them and set the corresponding values to it to make them IP-able.
 
 As a whole example, if we issue the following in a powershell console:
-PS C:\package\binaries> Get-NetAdapter | select Name,MacAddress,InterfaceDescription
+PS C:\package\binaries> Get-NetAdapter | select Name,InterfaceDescription
 
-Name                   MacAddress         InterfaceDescription
-----                   ----------         --------------------
-Ethernet1              00-0C-29-94-05-65  Intel(R) PRO/1000 MT Network Connection
-vEthernet (external)   00-0C-29-94-05-5B  Hyper-V Virtual Ethernet Adapter #2
-Ethernet0              00-0C-29-94-05-5B  Intel(R) PRO/1000 MT Network Connection #2
+Name                   InterfaceDescription
+----                   --------------------
+Ethernet1              Intel(R) PRO/1000 MT Network Connection
+br-pif                 Hyper-V Virtual Ethernet Adapter #2
+Ethernet0              Intel(R) PRO/1000 MT Network Connection #2
+br-int                 Hyper-V Virtual Ethernet Adapter #3
 
 PS C:\package\binaries> Get-VMSwitch
 
@@ -303,12 +302,11 @@ Name     SwitchType NetAdapterInterfaceDescription
 external External   Intel(R) PRO/1000 MT Network Connection #2
 
 
-We can see that we have a switch(external) created upon adapter name 'Ethernet0'
-with an internal port under name 'vEthernet (external)'. Thus resulting into the
-following ovs-vsctl commands
+We can see that we have a switch(external) created upon adapter name
+'Ethernet0' with the internal ports under name 'br-pif' and 'br-int'. Thus
+resulting into the following ovs-vsctl commands
 
     % ovs-vsctl add-port br-pif Ethernet0
-    % ovs-vsctl add-port br-pif "vEthernet (external)"
 
 * Dumping the ports should show the additional ports that were just added.
   Sample output shows up as follows:
@@ -317,18 +315,17 @@ following ovs-vsctl commands
     system@ovs-system:
             lookups: hit:0 missed:0 lost:0
             flows: 0
-            port 4: vEthernet (external) (internal) <<< 'AllowManagementOS'
-                                                         adapter on
-                                                         Hyper-V switch
-            port 2: br-pif (internal)
-            port 1: br-int (internal)
+            port 2: br-pif (internal)               <<< internal port
+                                                        adapter on
+                                                        Hyper-V switch
+            port 1: br-int (internal)               <<< internal port
+                                                        adapter on
+                                                        Hyper-V switch
             port 3: Ethernet0                       <<< Physical NIC
 
     % ovs-vsctl show
     a56ec7b5-5b1f-49ec-a795-79f6eb63228b
         Bridge br-pif
-            Port "vEthernet (external)"
-                Interface "vEthernet (external)"
             Port br-pif
                 Interface br-pif
                     type: internal
@@ -374,8 +371,7 @@ with OVS extension enabled.
     system@ovs-system:
             lookups: hit:0 missed:0 lost:0
             flows: 0
-            port 4: vEthernet (external) (internal)
-            port 5: ovs-port-a
+            port 4: ovs-port-a
             port 2: br-pif (internal)
             port 1: br-int (internal
             port 3: Ethernet0
@@ -383,8 +379,6 @@ with OVS extension enabled.
     % ovs-vsctl show
     4cd86499-74df-48bd-a64d-8d115b12a9f2
         Bridge br-pif
-            Port "vEthernet (external)"
-                Interface "vEthernet (external)"
             Port "Ethernet0"
                 Interface "Ethernet0"
             Port br-pif

@@ -58,6 +58,7 @@
 
 VLOG_DEFINE_THIS_MODULE(dpif_netlink);
 #ifdef _WIN32
+#include "wmi.h"
 enum { WINDOWS = 1 };
 #else
 enum { WINDOWS = 0 };
@@ -848,7 +849,15 @@ dpif_netlink_port_add__(struct dpif_netlink *dpif, struct netdev *netdev,
         netdev_linux_ethtool_set_flag(netdev, ETH_FLAG_LRO, "LRO", false);
 #endif
     }
-
+#ifdef _WIN32
+    if (request.type == OVS_VPORT_TYPE_INTERNAL) {
+        if (!create_wmi_port(name)){
+            VLOG_ERR("Could not create wmi internal port with name:%s", name);
+            vport_del_socksp(dpif, socksp);
+            return EINVAL;
+        };
+    }
+#endif
     tnl_cfg = netdev_get_tunnel_config(netdev);
     if (tnl_cfg && (tnl_cfg->dst_port != 0 || tnl_cfg->exts)) {
         ofpbuf_use_stack(&options, options_stub, sizeof options_stub);
@@ -940,6 +949,16 @@ dpif_netlink_port_del__(struct dpif_netlink *dpif, odp_port_t port_no)
     vport.cmd = OVS_VPORT_CMD_DEL;
     vport.dp_ifindex = dpif->dp_ifindex;
     vport.port_no = port_no;
+#ifdef _WIN32
+    struct dpif_port temp_dpif_port;
+    dpif_netlink_port_query__(dpif, port_no, NULL, &temp_dpif_port);
+    if (!strcmp(temp_dpif_port.type, "internal")) {
+        if (!delete_wmi_port(temp_dpif_port.name)){
+            VLOG_ERR("Could not delete wmi port with name: %s",
+                     temp_dpif_port.name);
+        };
+    }
+#endif
     error = dpif_netlink_vport_transact(&vport, NULL, NULL);
 
     vport_del_channels(dpif, port_no);
@@ -2448,7 +2467,7 @@ dpif_netlink_is_internal_device(const char *name)
 
     return reply.type == OVS_VPORT_TYPE_INTERNAL;
 }
-
+
 /* Parses the contents of 'buf', which contains a "struct ovs_header" followed
  * by Netlink attributes, into 'vport'.  Returns 0 if successful, otherwise a
  * positive errno value.
@@ -2964,7 +2983,7 @@ dpif_netlink_flow_get_stats(const struct dpif_netlink_flow *flow,
     stats->used = flow->used ? get_32aligned_u64(flow->used) : 0;
     stats->tcp_flags = flow->tcp_flags ? *flow->tcp_flags : 0;
 }
-
+
 /* Logs information about a packet that was recently lost in 'ch' (in
  * 'dpif_'). */
 static void
