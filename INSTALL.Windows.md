@@ -277,9 +277,6 @@ connected to the Hyper-V switch. I.e. let us suppose we created the Hyper-V
 virtual switch on top of the adapter named 'Ethernet0'. In OVS for Hyper-V, we
 use that name('Ethernet0') as a special name to refer to that adapter.
 
-Note: Currently, we assume that the Hyper-V switch on which OVS extension is
-enabled has a single physical NIC connected to it.
-
 Internal ports are the virtual adapters created on the Hyper-V switch using the
 ovs-vsctl add-br <bridge> command. By default they are created under the
 following rule "<name of bridge>" and the adapters are disabled. One needs to
@@ -390,6 +387,73 @@ with OVS extension enabled.
                     type: internal
             Port "ovs-port-a"
                 Interface "ovs-port-a"
+
+Steps to add multiple NICs to be managed by OVS
+-----------------------------------------------
+
+To leverage support of multiple NICs into OVS we will be use the MSFT
+command-lets for forwarding team extension. More documentation can be found
+under:
+https://technet.microsoft.com/en-us/library/jj553812%28v=wps.630%29.aspx
+
+i.e.
+We will set up a switch team combined from 'Ethernet0 2' and 'Ethernet1 2'
+named external.
+
+% Get-NetAdapter
+
+Name                      InterfaceDescription
+----                      --------------------
+br-int                    Hyper-V Virtual Ethernet Adapter #3
+br-pif                    Hyper-V Virtual Ethernet Adapter #2
+Ethernet3 2               Intel(R) 82574L Gigabit Network Co...#3
+Ethernet2 2               Intel(R) 82574L Gigabit Network Co...#4
+Ethernet1 2               Intel(R) 82574L Gigabit Network Co...#2
+Ethernet0 2               Intel(R) 82574L Gigabit Network Conn...
+
+% New-NetSwitchTeam -Name external -TeamMembers "Ethernet0 2","Ethernet1 2"
+% Get-NetSwitchTeam
+Name    : external
+Members : {Ethernet1 2, Ethernet0 2}
+
+This will result in a new adapter bound to the host called 'external'
+
+% Get-NetAdapter
+
+Name                      InterfaceDescription
+----                      --------------------
+br-test                   Hyper-V Virtual Ethernet Adapter #4
+br-pif                    Hyper-V Virtual Ethernet Adapter #2
+external                  Microsoft Network Adapter Multiplexo...
+Ethernet3 2               Intel(R) 82574L Gigabit Network Co...#3
+Ethernet2 2               Intel(R) 82574L Gigabit Network Co...#4
+Ethernet1 2               Intel(R) 82574L Gigabit Network Co...#2
+Ethernet0 2               Intel(R) 82574L Gigabit Network Conn...
+
+Next we will set up the Hyper-V VMSwitch on the new adapter 'external'
+
+%New-VMSwitch -Name external -NetAdapterName external -AllowManagementOS $false
+
+Under OVS the adapters added to the team 'Ethernet0 2' and 'Ethernet1 2' can be
+added either under a bond device or separately.
+
+In our example here is how the bridges look with the NICs being separated under
+different bridges:
+
+% ovs-vsctl show
+6cd9481b-c249-4ee3-8692-97b399dd29d8
+    Bridge br-test
+        Port br-test
+            Interface br-test
+                type: internal
+        Port "Ethernet1 2"
+            Interface "Ethernet1 2"
+    Bridge br-pif
+        Port "Ethernet0 2"
+            Interface "Ethernet0 2"
+        Port br-pif
+            Interface br-pif
+                type: internal
 
 Steps to configure patch ports and switch VLAN tagging
 ------------------------------------------------------
