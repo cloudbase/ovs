@@ -56,6 +56,7 @@ NDIS_STATUS OvsActionsExecute(POVS_SWITCH_CONTEXT switchContext,
                               const PNL_ATTR actions, int actionsLen);
 
 VOID OvsLookupFlowOutput(POVS_SWITCH_CONTEXT switchContext,
-                         VOID *compList, PNET_BUFFER_LIST curNbl);
+                         VOID *compList, PNET_BUFFER_LIST curNbl,
+                         POVS_VPORT_ENTRY internalVport);
 
 #endif /* __PACKETIO_H_ */

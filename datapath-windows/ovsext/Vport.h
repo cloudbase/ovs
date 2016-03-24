@@ -79,38 +79,39 @@ typedef struct _OVS_VPORT_FULL_STATS {
  * tunnel type, such as vxlan, gre
  */
 typedef struct _OVS_VPORT_ENTRY {
-    LIST_ENTRY             ovsNameLink;
-    LIST_ENTRY             portIdLink;
-    LIST_ENTRY             portNoLink;
-    LIST_ENTRY             tunnelVportLink;
+    LIST_ENTRY                   ovsNameLink;
+    LIST_ENTRY                   portIdLink;
+    LIST_ENTRY                   portNoLink;
+    LIST_ENTRY                   tunnelVportLink;
 
-    OVS_VPORT_STATE        ovsState;
-    OVS_VPORT_TYPE         ovsType;
-    OVS_VPORT_STATS        stats;
-    OVS_VPORT_ERR_STATS    errStats;
-    UINT32                 portNo;
-    UINT32                 mtu;
+    OVS_VPORT_STATE              ovsState;
+    OVS_VPORT_TYPE               ovsType;
+    OVS_VPORT_STATS              stats;
+    OVS_VPORT_ERR_STATS          errStats;
+    UINT32                       portNo;
+    UINT32                       mtu;
     /* ovsName is the ovs (datapath) port name - it is null terminated. */
-    CHAR                   ovsName[OVS_MAX_PORT_NAME_LENGTH];
+    CHAR                         ovsName[OVS_MAX_PORT_NAME_LENGTH];
 
-    PVOID                  priv;
-    NDIS_SWITCH_PORT_ID    portId;
-    NDIS_SWITCH_NIC_INDEX  nicIndex;
-    NDIS_SWITCH_NIC_TYPE   nicType;
-    UINT16                 numaNodeId;
-    NDIS_SWITCH_PORT_STATE portState;
-    NDIS_SWITCH_NIC_STATE  nicState;
-    NDIS_SWITCH_PORT_TYPE  portType;
+    PVOID                        priv;
+    NDIS_SWITCH_PORT_ID          portId;
+    NDIS_SWITCH_NIC_INDEX        nicIndex;
+    NDIS_SWITCH_NIC_TYPE         nicType;
+    UINT16                       numaNodeId;
+    NDIS_SWITCH_PORT_STATE       portState;
+    NDIS_SWITCH_NIC_STATE        nicState;
+    NDIS_SWITCH_PORT_TYPE        portType;
 
-    UINT8                  permMacAddress[ETH_ADDR_LEN];
-    UINT8                  currMacAddress[ETH_ADDR_LEN];
-    UINT8                  vmMacAddress[ETH_ADDR_LEN];
+    UINT8                        permMacAddress[ETH_ADDR_LEN];
+    UINT8                        currMacAddress[ETH_ADDR_LEN];
+    UINT8                        vmMacAddress[ETH_ADDR_LEN];
 
-    NDIS_SWITCH_PORT_NAME  hvPortName;
-    IF_COUNTED_STRING      portFriendlyName;
-    NDIS_SWITCH_NIC_NAME   nicName;
-    NDIS_VM_NAME           vmName;
-    GUID                   netCfgInstanceId;
+    NDIS_SWITCH_PORT_NAME        hvPortName;
+    IF_COUNTED_STRING            portFriendlyName;
+    NDIS_SWITCH_NIC_NAME         nicName;
+    NDIS_SWITCH_NIC_FRIENDLYNAME nicFriendlyName;
+    NDIS_VM_NAME                 vmName;
+    GUID                         netCfgInstanceId;
     /*
      * OVS userpace has a notion of bridges which basically defines an
      * L2-domain. Each "bridge" has an "internal" port of type
@@ -125,12 +126,12 @@ typedef struct _OVS_VPORT_ENTRY {
      * If a flow actions specifies the output port to be a bridge-internal port,
      * the port is silently ignored.
      */
-    BOOLEAN                isBridgeInternal;
-    BOOLEAN                isExternal;
-    UINT32                 upcallPid; /* netlink upcall port id */
-    PNL_ATTR               portOptions;
-    BOOLEAN                isAbsentOnHv; /* Is this port present on the
-                                             Hyper-V switch? */
+    BOOLEAN                      isBridgeInternal;
+    BOOLEAN                      isExternal;
+    UINT32                       upcallPid; /* netlink upcall port id */
+    PNL_ATTR                     portOptions;
+    BOOLEAN                      isAbsentOnHv; /* Is this port present on the
+                                                  Hyper-V switch? */
 } OVS_VPORT_ENTRY, *POVS_VPORT_ENTRY;
 
 struct _OVS_SWITCH_CONTEXT;
@@ -142,6 +143,9 @@ POVS_VPORT_ENTRY OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
                                        PSTR name);
 POVS_VPORT_ENTRY OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
                                        PSTR name);
+POVS_VPORT_ENTRY OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
+                                       PWSTR wsName,
+                                       SIZE_T wstrSize);
 POVS_VPORT_ENTRY OvsFindVportByPortIdAndNicIndex(POVS_SWITCH_CONTEXT switchContext,
                                                  NDIS_SWITCH_PORT_ID portId,
                                                  NDIS_SWITCH_NIC_INDEX index);

@@ -40,6 +40,9 @@
 #define STT_CLEANUP_INTERVAL 300000000 // 30s
 
 #define STT_ETH_PAD 2
+
+typedef union _OVS_FWD_INFO *POVS_FWD_INFO;
+
 typedef struct SttHdr {
     UINT8    version;
     UINT8    flags;
@@ -94,7 +97,8 @@ NDIS_STATUS OvsEncapStt(POVS_VPORT_ENTRY vport,
                         OvsIPv4TunnelKey *tunKey,
                         POVS_SWITCH_CONTEXT switchContext,
                         POVS_PACKET_HDR_INFO layers,
-                        PNET_BUFFER_LIST *newNbl);
+                        PNET_BUFFER_LIST *newNbl,
+                        POVS_FWD_INFO switchFwdInfo);
 
 
 NDIS_STATUS OvsDecapStt(POVS_SWITCH_CONTEXT switchContext,

@@ -127,9 +127,10 @@ typedef struct _OVS_SWITCH_CONTEXT
      * 'numPhysicalNics'.
      */
     NDIS_SWITCH_PORT_ID     virtualExternalPortId;
-    NDIS_SWITCH_PORT_ID     internalPortId;
-    POVS_VPORT_ENTRY        virtualExternalVport;   // the virtual adapter vport
-    POVS_VPORT_ENTRY        internalVport;
+    POVS_VPORT_ENTRY        virtualExternalVport;   /* the virtual adapter
+                                                     * vport */
+    INT32                   countInternalVports;    /* the number of internal
+                                                     * vports */
 
     /*
      * 'portIdHashArray' ONLY contains ports that exist on the Hyper-V switch,

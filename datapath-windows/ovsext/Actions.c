@@ -240,7 +240,6 @@ OvsDetectTunnelRxPkt(OvsForwardingContext *ovsFwdCtx,
 
     // We might get tunnel packets even before the tunnel gets initialized.
     if (tunnelVport) {
-        ASSERT(ovsFwdCtx->tunnelRxNic == NULL);
         ovsFwdCtx->tunnelRxNic = tunnelVport;
         return TRUE;
     }
@@ -284,7 +283,6 @@ OvsDetectTunnelPkt(OvsForwardingContext *ovsFwdCtx,
                  NDIS_SWITCH_DEFAULT_PORT_ID);
 
         if (validSrcPort && OvsDetectTunnelRxPkt(ovsFwdCtx, flowKey)) {
-            ASSERT(ovsFwdCtx->tunnelTxNic == NULL);
             ASSERT(ovsFwdCtx->tunnelRxNic != NULL);
             return TRUE;
         }
@@ -650,36 +648,31 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
      * Setup the source port to be the internal port to as to facilitate the
      * second OvsLookupFlow.
      */
-    if (ovsFwdCtx->switchContext->internalVport == NULL ||
+    if (ovsFwdCtx->switchContext->countInternalVports <= 0 ||
         ovsFwdCtx->switchContext->virtualExternalVport == NULL) {
         OvsClearTunTxCtx(ovsFwdCtx);
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
             L"OVS-Dropped since either internal or external port is absent");
         return NDIS_STATUS_FAILURE;
     }
-    ovsFwdCtx->srcVportNo =
-        ((POVS_VPORT_ENTRY)ovsFwdCtx->switchContext->internalVport)->portNo;
 
-    ovsFwdCtx->fwdDetail->SourcePortId = ovsFwdCtx->switchContext->internalPortId;
-    ovsFwdCtx->fwdDetail->SourceNicIndex =
-        ((POVS_VPORT_ENTRY)ovsFwdCtx->switchContext->internalVport)->nicIndex;
-
+    OVS_FWD_INFO switchFwdInfo = { 0 };
     /* Do the encap. Encap function does not consume the NBL. */
     switch(ovsFwdCtx->tunnelTxNic->ovsType) {
     case OVS_VPORT_TYPE_GRE:
         status = OvsEncapGre(ovsFwdCtx->tunnelTxNic, ovsFwdCtx->curNbl,
                              &ovsFwdCtx->tunKey, ovsFwdCtx->switchContext,
-                             &ovsFwdCtx->layers, &newNbl);
+                             &ovsFwdCtx->layers, &newNbl, &switchFwdInfo);
         break;
     case OVS_VPORT_TYPE_VXLAN:
         status = OvsEncapVxlan(ovsFwdCtx->tunnelTxNic, ovsFwdCtx->curNbl,
                                &ovsFwdCtx->tunKey, ovsFwdCtx->switchContext,
-                               &ovsFwdCtx->layers, &newNbl);
+                               &ovsFwdCtx->layers, &newNbl, &switchFwdInfo);
         break;
     case OVS_VPORT_TYPE_STT:
         status = OvsEncapStt(ovsFwdCtx->tunnelTxNic, ovsFwdCtx->curNbl,
                              &ovsFwdCtx->tunKey, ovsFwdCtx->switchContext,
-                             &ovsFwdCtx->layers, &newNbl);
+                             &ovsFwdCtx->layers, &newNbl, &switchFwdInfo);
         break;
     default:
         ASSERT(! "Tx: Unhandled tunnel type");
@@ -688,8 +681,11 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
     /* Reset the tunnel context so that it doesn't get used after this point. */
     OvsClearTunTxCtx(ovsFwdCtx);
 
-    if (status == NDIS_STATUS_SUCCESS) {
+    if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
         ASSERT(newNbl);
+        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
+        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
         ovsFwdCtx->curNbl = newNbl;
@@ -697,7 +693,7 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {
         /*
-        * XXX: Temporary freeing of the packet until we register a
+         * XXX: Temporary freeing of the packet until we register a
          * callback to IP helper.
          */
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
@@ -929,13 +925,11 @@ dropit:
 VOID
 OvsLookupFlowOutput(POVS_SWITCH_CONTEXT switchContext,
                     VOID *compList,
-                    PNET_BUFFER_LIST curNbl)
+                    PNET_BUFFER_LIST curNbl,
+                    POVS_VPORT_ENTRY internalVport)
 {
     NDIS_STATUS status;
     OvsForwardingContext ovsFwdCtx;
-    POVS_VPORT_ENTRY internalVport =
-        (POVS_VPORT_ENTRY)switchContext->internalVport;
-
     /* XXX: make sure comp list was not a stack variable previously. */
     OvsCompletionList *completionList = (OvsCompletionList *)compList;
 
@@ -944,7 +938,7 @@ OvsLookupFlowOutput(POVS_SWITCH_CONTEXT switchContext,
      * It could, but will we get this callback from IP helper in that case. Need
      * to check.
      */
-    ASSERT(switchContext->internalVport);
+    ASSERT(switchContext->countInternalVports >= 0);
     status = OvsInitForwardingCtx(&ovsFwdCtx, switchContext, curNbl,
                                   internalVport->portNo, 0,
                                   NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(curNbl),
@@ -1088,6 +1082,9 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     /* Bail out if L2 + shiftLength is not contiguous in the first buffer. */
     if (MIN(packetLen, mdlLen) < sizeof(EthHdr) + shiftLength) {
         ASSERT(FALSE);
+        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
+                                    L"Dropped due to the buffer is not"
+                                    L"contiguous");
         return NDIS_STATUS_FAILURE;
     }
     bufferStart += NET_BUFFER_CURRENT_MDL_OFFSET(curNb);

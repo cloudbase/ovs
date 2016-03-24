@@ -282,8 +282,6 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
                           IP_DF_NBO : 0;
         ipHdr->ttl = tunKey->ttl ? tunKey->ttl : VXLAN_DEFAULT_TTL;
         ipHdr->protocol = IPPROTO_UDP;
-        ASSERT(tunKey->dst == fwdInfo->dstIpAddr);
-        ASSERT(tunKey->src == fwdInfo->srcIpAddr || tunKey->src == 0);
         ipHdr->saddr = fwdInfo->srcIpAddr;
         ipHdr->daddr = fwdInfo->dstIpAddr;
 
@@ -332,7 +330,8 @@ OvsEncapVxlan(POVS_VPORT_ENTRY vport,
               OvsIPv4TunnelKey *tunKey,
               POVS_SWITCH_CONTEXT switchContext,
               POVS_PACKET_HDR_INFO layers,
-              PNET_BUFFER_LIST *newNbl)
+              PNET_BUFFER_LIST *newNbl,
+              POVS_FWD_INFO switchFwdInfo)
 {
     NTSTATUS status;
     OVS_FWD_INFO fwdInfo;
@@ -340,7 +339,6 @@ OvsEncapVxlan(POVS_VPORT_ENTRY vport,
     status = OvsLookupIPFwdInfo(tunKey->dst, &fwdInfo);
     if (status != STATUS_SUCCESS) {
         OvsFwdIPHelperRequest(NULL, 0, tunKey, NULL, NULL, NULL);
-        // return NDIS_STATUS_PENDING;
         /*
          * XXX: Don't know if the completionList will make any sense when
          * accessed in the callback. Make sure the caveats are known.
@@ -350,6 +348,8 @@ OvsEncapVxlan(POVS_VPORT_ENTRY vport,
          */
         return NDIS_STATUS_FAILURE;
     }
+
+    RtlCopyMemory(switchFwdInfo->value, fwdInfo.value, sizeof fwdInfo.value);
 
     return OvsDoEncapVxlan(vport, curNbl, tunKey, &fwdInfo, layers,
                            switchContext, newNbl);
