@@ -30,6 +30,7 @@
 #include "Event.h"
 #include "User.h"
 #include "PacketIO.h"
+#include "Recirc.h"
 #include "NetProto.h"
 #include "Flow.h"
 #include "User.h"
@@ -385,6 +386,8 @@ OvsInit()
     gOvsCtrlLock = &ovsCtrlLockObj;
     NdisAllocateSpinLock(gOvsCtrlLock);
     OvsInitEventQueue();
+    OvsDeferredActionsQueueAlloc();
+    OvsDeferredActionsLevelAlloc();
 }
 
 VOID
@@ -395,6 +398,8 @@ OvsCleanup()
         NdisFreeSpinLock(gOvsCtrlLock);
         gOvsCtrlLock = NULL;
     }
+    OvsDeferredActionsQueueFree();
+    OvsDeferredActionsLevelFree();
 }
 
 VOID
