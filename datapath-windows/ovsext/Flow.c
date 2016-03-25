@@ -854,6 +854,14 @@ MapFlowKeyToNlKey(PNL_BUFFER nlBuf,
         goto done;
     }
 
+    if (flowKey->dpHash) {
+        if (!NlMsgPutTailU32(nlBuf, OVS_KEY_ATTR_DP_HASH,
+                             flowKey->dpHash)) {
+            rc = STATUS_UNSUCCESSFUL;
+            goto done;
+        }
+    }
+
     /* Ethernet header */
     RtlCopyMemory(&(ethKey.eth_src), flowKey->l2.dlSrc, ETH_ADDR_LEN);
     RtlCopyMemory(&(ethKey.eth_dst), flowKey->l2.dlDst, ETH_ADDR_LEN);
@@ -1382,6 +1390,11 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
     if (keyAttrs[OVS_KEY_ATTR_RECIRC_ID]) {
         destKey->recircId = NlAttrGetU32(keyAttrs[OVS_KEY_ATTR_RECIRC_ID]);
         destKey->l2.keyLen += sizeof(destKey->recircId);
+    }
+
+    if (keyAttrs[OVS_KEY_ATTR_DP_HASH]) {
+        destKey->dpHash = NlAttrGetU32(keyAttrs[OVS_KEY_ATTR_DP_HASH]);
+        destKey->l2.keyLen += sizeof(destKey->dpHash);
     }
 
     /* ===== L2 headers ===== */
@@ -2286,6 +2299,7 @@ ReportFlowInfo(OvsFlow *flow,
     }
 
     info->key.recircId = flow->key.recircId;
+    info->key.dpHash = flow->key.dpHash;
 
     return status;
 }
