@@ -398,6 +398,9 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
                 *vport = OvsFindVportByHvNameW(gOvsSwitchContext,
                                                interfaceName,
                                                len);
+                if (*vport == NULL) {
+                    status = STATUS_INVALID_PARAMETER;
+                }
             } else {
                 status = STATUS_INVALID_PARAMETER;
             }
@@ -609,6 +612,9 @@ OvsAddIpInterfaceNotification(PMIB_IPINTERFACE_ROW ipRow)
         status = ConvertInterfaceLuidToAlias(&ipRow->InterfaceLuid,
                                              interfaceName,
                                              IF_MAX_STRING_SIZE + 1);
+        if (gOvsSwitchContext == NULL) {
+            goto error;
+        }
         POVS_VPORT_ENTRY vport = OvsFindVportByHvNameW(gOvsSwitchContext,
                                                        interfaceName,
                                                        sizeof(WCHAR) *

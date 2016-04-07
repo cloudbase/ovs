@@ -112,21 +112,7 @@ typedef struct _OVS_VPORT_ENTRY {
     NDIS_SWITCH_NIC_FRIENDLYNAME nicFriendlyName;
     NDIS_VM_NAME                 vmName;
     GUID                         netCfgInstanceId;
-    /*
-     * OVS userpace has a notion of bridges which basically defines an
-     * L2-domain. Each "bridge" has an "internal" port of type
-     * OVS_VPORT_TYPE_INTERNAL. Such a port is connected to the OVS datapath in
-     * one end, and the other end is a virtual adapter on the hypervisor host.
-     * This is akin to the Hyper-V "internal" NIC. It is intuitive to map the
-     * Hyper-V "internal" NIC to the OVS bridge's "internal" port, but there's
-     * only one Hyper-V NIC but multiple bridges. To support multiple OVS bridge
-     * "internal" ports, we use the flag 'isBridgeInternal' in each vport. We
-     * support addition of multiple bridge-internal ports. A vport with
-     * 'isBridgeInternal' == TRUE is a dummy port and has no backing currently.
-     * If a flow actions specifies the output port to be a bridge-internal port,
-     * the port is silently ignored.
-     */
-    BOOLEAN                      isBridgeInternal;
+
     BOOLEAN                      isExternal;
     UINT32                       upcallPid; /* netlink upcall port id */
     PNL_ATTR                     portOptions;
@@ -213,14 +199,6 @@ OvsIsRealExternalVport(POVS_VPORT_ENTRY vport)
 {
     return vport->nicType == NdisSwitchNicTypeExternal &&
            vport->nicIndex != 0;
-}
-
-static __inline BOOLEAN
-OvsIsBridgeInternalVport(POVS_VPORT_ENTRY vport)
-{
-    ASSERT(vport->isBridgeInternal != TRUE ||
-           vport->ovsType == OVS_VPORT_TYPE_INTERNAL);
-    return vport->isBridgeInternal == TRUE;
 }
 
 static __inline BOOLEAN

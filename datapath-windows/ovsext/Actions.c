@@ -308,7 +308,7 @@ OvsDetectTunnelPkt(OvsForwardingContext *ovsFwdCtx,
 
             if (!vport ||
                 (vport->ovsType != OVS_VPORT_TYPE_NETDEV &&
-                 !OvsIsBridgeInternalVport(vport))) {
+                 vport->ovsType != OVS_VPORT_TYPE_INTERNAL)) {
                 ovsFwdCtx->tunKey.dst = 0;
             }
         }
@@ -384,10 +384,6 @@ OvsAddPorts(OvsForwardingContext *ovsFwdCtx,
     vport->stats.txPackets++;
     vport->stats.txBytes +=
         NET_BUFFER_DATA_LENGTH(NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl));
-
-    if (OvsIsBridgeInternalVport(vport)) {
-        return NDIS_STATUS_SUCCESS;
-    }
 
     if (OvsDetectTunnelPkt(ovsFwdCtx, vport, flowKey)) {
         return NDIS_STATUS_SUCCESS;

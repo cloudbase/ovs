@@ -96,6 +96,9 @@ static VOID OvsTunnelVportPendingRemove(PVOID context,
                                         UINT32 *replyLen);
 static NTSTATUS GetNICAlias(PNDIS_SWITCH_NIC_PARAMETERS nicParam,
                             IF_COUNTED_STRING *portFriendlyName);
+static NTSTATUS OvsConvertIfCountedStrToAnsiStr(PIF_COUNTED_STRING wStr,
+                                                CHAR *str,
+                                                UINT16 maxStrLen);
 
 /*
  * --------------------------------------------------------------------------
@@ -331,32 +334,49 @@ HvCreateNic(POVS_SWITCH_CONTEXT switchContext,
         OvsIsRealExternalNIC(nicParam->NicType, nicParam->NicIndex)) {
         GetNICAlias(nicParam, &portFriendlyName);
     }
-
-    NdisAcquireRWLockWrite(switchContext->dispatchLock, &lockState, 0);
     /*
      * There can be one or more NICs for the external port. We create a vport
      * structure for each such NIC, and each NIC inherits a lot of properties
      * from the parent external port.
      */
     if (OvsIsRealExternalNIC(nicParam->NicType, nicParam->NicIndex)) {
-        NDIS_SWITCH_PORT_PARAMETERS portParam;
-        POVS_VPORT_ENTRY virtExtVport =
-            (POVS_VPORT_ENTRY)switchContext->virtualExternalVport;
-
-        ASSERT(virtExtVport);
+        /* The VPORT can be bound to OVS datapath already. Search for it
+         * using its friendly name and if not found allocate a new port
+         */
         ASSERT(OvsFindVportByPortIdAndNicIndex(switchContext,
                                                nicParam->PortId,
                                                nicParam->NicIndex) == NULL);
-        OvsCopyPortParamsFromVport(virtExtVport, &portParam);
-        NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
-        status = HvCreatePort(switchContext, &portParam,
-                              nicParam->NicIndex);
-        NdisAcquireRWLockWrite(switchContext->dispatchLock, &lockState, 0);
+        char convertString[256];
+        RtlZeroMemory(convertString, 256);
+        status = OvsConvertIfCountedStrToAnsiStr(&portFriendlyName,
+                                                 convertString,
+                                                 OVS_MAX_PORT_NAME_LENGTH);
         if (status != NDIS_STATUS_SUCCESS) {
-            goto add_nic_done;
+            goto done;
+        }
+        NdisAcquireRWLockWrite(switchContext->dispatchLock, &lockState, 0);
+        POVS_VPORT_ENTRY ovsVport = OvsFindVportByOvsName(switchContext,
+                                                          convertString);
+        if (ovsVport != NULL) {
+            UpdateSwitchCtxWithVport(switchContext, ovsVport, FALSE);
+            NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
+        } else {
+            NDIS_SWITCH_PORT_PARAMETERS portParam;
+            POVS_VPORT_ENTRY virtExtVport =
+                (POVS_VPORT_ENTRY)switchContext->virtualExternalVport;
+
+            ASSERT(virtExtVport);
+            OvsCopyPortParamsFromVport(virtExtVport, &portParam);
+            NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
+            status = HvCreatePort(switchContext, &portParam,
+                                  nicParam->NicIndex);
+            if (status != NDIS_STATUS_SUCCESS) {
+                goto done;
+            }
         }
     }
 
+    NdisAcquireRWLockWrite(switchContext->dispatchLock, &lockState, 0);
     vport = OvsFindVportByPortIdAndNicIndex(switchContext, nicParam->PortId,
                                             nicParam->NicIndex);
     if (vport == NULL) {
@@ -483,7 +503,7 @@ HvUpdateNic(POVS_SWITCH_CONTEXT switchContext,
                     &portFriendlyName, vport->portFriendlyName.Length) !=
                     vport->portFriendlyName.Length) {
                 RtlCopyMemory(&vport->portFriendlyName, &portFriendlyName,
-                    sizeof portFriendlyName);
+                              sizeof portFriendlyName);
                 nameChanged = TRUE;
             }
         }
@@ -597,7 +617,7 @@ HvDisconnectNic(POVS_SWITCH_CONTEXT switchContext,
      * point, userspace should not be able to access this port.
      */
     if (OvsIsRealExternalVport(vport)) {
-        OvsRemoveAndDeleteVport(NULL, switchContext, vport, FALSE, TRUE);
+        OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
         OvsPostEvent(&event);
     }
     NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
@@ -869,7 +889,6 @@ OvsInitVportWithPortParam(POVS_VPORT_ENTRY vport,
     vport->portId = portParam->PortId;
     vport->nicState = NdisSwitchNicStateUnknown;
     vport->isExternal = FALSE;
-    vport->isBridgeInternal = FALSE;
 
     switch (vport->portType) {
     case NdisSwitchPortTypeExternal:
@@ -911,7 +930,6 @@ OvsInitVportWithNicParam(POVS_SWITCH_CONTEXT switchContext,
                          PNDIS_SWITCH_NIC_PARAMETERS nicParam)
 {
     ASSERT(vport->portId == nicParam->PortId);
-    ASSERT(vport->ovsState == OVS_STATE_PORT_CREATED);
 
     UNREFERENCED_PARAMETER(switchContext);
 
@@ -992,7 +1010,6 @@ OvsInitTunnelVport(PVOID userContext,
     POVS_USER_PARAMS_CONTEXT usrParamsCtx =
         (POVS_USER_PARAMS_CONTEXT)userContext;
 
-    vport->isBridgeInternal = FALSE;
     vport->ovsType = ovsType;
     vport->ovsState = OVS_STATE_PORT_CREATED;
     switch (ovsType) {
@@ -1032,23 +1049,6 @@ OvsInitTunnelVport(PVOID userContext,
         ASSERT(0);
     }
     return status;
-}
-
-/*
- * --------------------------------------------------------------------------
- * Initializes a bridge internal vport ie. a port of type
- * OVS_VPORT_TYPE_INTERNAL but not present on the Hyper-V switch.
- * --------------------------------------------------------------------------
- */
-NTSTATUS
-OvsInitBridgeInternalVport(POVS_VPORT_ENTRY vport)
-{
-    vport->isBridgeInternal = TRUE;
-    vport->ovsType = OVS_VPORT_TYPE_INTERNAL;
-    /* Mark the status to be connected, since there is no other initialization
-     * for this port. */
-    vport->ovsState = OVS_STATE_CONNECTED;
-    return STATUS_SUCCESS;
 }
 
 /*
@@ -1122,12 +1122,11 @@ UpdateSwitchCtxWithVport(POVS_SWITCH_CONTEXT switchContext,
         if (vport->nicIndex == 0) {
             switchContext->virtualExternalPortId = vport->portId;
             switchContext->virtualExternalVport = vport;
-        } else {
+        } else if (newPort == TRUE){
             switchContext->numPhysicalNics++;
         }
         break;
     case NdisSwitchPortTypeInternal:
-        ASSERT(vport->isBridgeInternal == FALSE);
         switchContext->countInternalVports++;
         break;
     case NdisSwitchPortTypeSynthetic:
@@ -1188,10 +1187,6 @@ InitOvsVportCommon(POVS_SWITCH_CONTEXT switchContext,
         switchContext->numNonHvVports++;
         break;
     }
-    case OVS_VPORT_TYPE_INTERNAL:
-        if (vport->isBridgeInternal) {
-            switchContext->numNonHvVports++;
-        }
     default:
         break;
     }
@@ -1242,14 +1237,12 @@ OvsRemoveAndDeleteVport(PVOID usrParamsContext,
 
     switch (vport->ovsType) {
     case OVS_VPORT_TYPE_INTERNAL:
-        if (!vport->isBridgeInternal) {
-            if (hvDelete && vport->isAbsentOnHv == FALSE) {
-                switchContext->countInternalVports--;
-                ASSERT(switchContext->countInternalVports >= 0);
-                OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
-            }
-            hvSwitchPort = TRUE;
+        if (hvDelete && vport->isAbsentOnHv == FALSE) {
+            switchContext->countInternalVports--;
+            ASSERT(switchContext->countInternalVports >= 0);
+            OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
         }
+        hvSwitchPort = TRUE;
         break;
     case OVS_VPORT_TYPE_VXLAN:
     {
@@ -1509,8 +1502,7 @@ OvsClearAllSwitchVports(POVS_SWITCH_CONTEXT switchContext)
             POVS_VPORT_ENTRY vport;
             vport = CONTAINING_RECORD(link, OVS_VPORT_ENTRY, portNoLink);
             ASSERT(OvsIsTunnelVportType(vport->ovsType) ||
-                   (vport->ovsType == OVS_VPORT_TYPE_INTERNAL &&
-                    vport->isBridgeInternal) || vport->isAbsentOnHv == TRUE);
+                   vport->isAbsentOnHv == TRUE);
             OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
         }
     }
