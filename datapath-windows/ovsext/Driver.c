@@ -98,7 +98,10 @@ DriverEntry(PDRIVER_OBJECT driverObject,
     UNREFERENCED_PARAMETER(registryPath);
 
     /* Initialize driver associated data structures. */
-    OvsInit();
+    status = OvsInit();
+    if (status != NDIS_STATUS_SUCCESS) {
+        goto cleanup;
+    }
 
     gOvsExtDriverObject = driverObject;
 
@@ -176,12 +179,12 @@ OvsExtUnload(struct _DRIVER_OBJECT *driverObject)
 {
     UNREFERENCED_PARAMETER(driverObject);
 
-    /* Release driver associated data structures. */
-    OvsCleanup();
-
     OvsDeleteDeviceObject();
 
     NdisFDeregisterFilterDriver(gOvsExtDriverHandle);
+
+    /* Release driver associated data structures. */
+    OvsCleanup();
 }
 
 
