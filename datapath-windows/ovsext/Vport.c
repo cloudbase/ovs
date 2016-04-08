@@ -69,7 +69,8 @@ extern POVS_SWITCH_CONTEXT gOvsSwitchContext;
 static VOID OvsInitVportWithPortParam(POVS_VPORT_ENTRY vport,
                 PNDIS_SWITCH_PORT_PARAMETERS portParam);
 static VOID OvsInitVportWithNicParam(POVS_SWITCH_CONTEXT switchContext,
-                POVS_VPORT_ENTRY vport, PNDIS_SWITCH_NIC_PARAMETERS nicParam);
+                                     POVS_VPORT_ENTRY vport,
+                                     PNDIS_SWITCH_NIC_PARAMETERS nicParam);
 static VOID OvsCopyPortParamsFromVport(POVS_VPORT_ENTRY vport,
                                        PNDIS_SWITCH_PORT_PARAMETERS portParam);
 static __inline VOID OvsWaitActivate(POVS_SWITCH_CONTEXT switchContext,
@@ -343,9 +344,14 @@ HvCreateNic(POVS_SWITCH_CONTEXT switchContext,
         /* The VPORT can be bound to OVS datapath already. Search for it
          * using its friendly name and if not found allocate a new port
          */
-        ASSERT(OvsFindVportByPortIdAndNicIndex(switchContext,
-                                               nicParam->PortId,
-                                               nicParam->NicIndex) == NULL);
+        NdisAcquireRWLockRead(switchContext->dispatchLock, &lockState, 0);
+        if (OvsFindVportByPortIdAndNicIndex(switchContext,
+            nicParam->PortId,
+            nicParam->NicIndex) != NULL) {
+            status = STATUS_INVALID_PARAMETER;
+        }
+        NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
+
         char convertString[256];
         RtlZeroMemory(convertString, 256);
         status = OvsConvertIfCountedStrToAnsiStr(&portFriendlyName,
@@ -358,7 +364,16 @@ HvCreateNic(POVS_SWITCH_CONTEXT switchContext,
         POVS_VPORT_ENTRY ovsVport = OvsFindVportByOvsName(switchContext,
                                                           convertString);
         if (ovsVport != NULL) {
-            UpdateSwitchCtxWithVport(switchContext, ovsVport, FALSE);
+            ovsVport->nicState = nicParam->NicState;
+            ovsVport->nicIndex = nicParam->NicIndex;
+            ovsVport->portId = nicParam->PortId;
+            RtlCopyMemory(&ovsVport->netCfgInstanceId,
+                          &nicParam->NetCfgInstanceId,
+                          sizeof (GUID));
+            ovsVport->isAbsentOnHv = FALSE;
+            ovsVport->nicType = nicParam->NicType;
+            UpdateSwitchCtxWithVport(switchContext, ovsVport, TRUE);
+            switchContext->numHvVports--;
             NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
         } else {
             NDIS_SWITCH_PORT_PARAMETERS portParam;
@@ -440,11 +455,11 @@ HvConnectNic(POVS_SWITCH_CONTEXT switchContext,
     vport->ovsState = OVS_STATE_CONNECTED;
     vport->nicState = NdisSwitchNicStateConnected;
 
-    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
-
-    if (nicParam->NicType == NdisSwitchNicTypeInternal) {
-        OvsInternalAdapterUp(vport->portNo, &nicParam->NetCfgInstanceId);
+    if (vport->nicType == NdisSwitchNicTypeInternal) {
+        OvsInternalAdapterUp(vport->portNo, &vport->netCfgInstanceId);
     }
+
+    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
 done:
     VPORT_NIC_EXIT(nicParam);
@@ -620,11 +635,11 @@ HvDisconnectNic(POVS_SWITCH_CONTEXT switchContext,
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
         OvsPostEvent(&event);
     }
-    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
     if (isInternalPort) {
         OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
     }
+    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
 done:
     VPORT_NIC_EXIT(nicParam);

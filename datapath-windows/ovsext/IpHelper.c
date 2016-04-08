@@ -383,8 +383,10 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
         }
 
         if (minMetric > crtRoute.Metric) {
+            status = STATUS_SUCCESS;
             size_t len = 0;
             minMetric = crtRoute.Metric;
+            LOCK_STATE_EX lockState;
 
             RtlCopyMemory(sourceAddress, &crtSrcAddr, sizeof(*sourceAddress));
             RtlCopyMemory(route, &crtRoute, sizeof(*route));
@@ -395,17 +397,13 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
             RtlStringCbLengthW(interfaceName, IF_MAX_STRING_SIZE, &len);
 
             if (gOvsSwitchContext != NULL) {
+                NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock,
+                                      &lockState, 0);
                 *vport = OvsFindVportByHvNameW(gOvsSwitchContext,
                                                interfaceName,
                                                len);
-                if (*vport == NULL) {
-                    status = STATUS_INVALID_PARAMETER;
-                }
-            } else {
-                status = STATUS_INVALID_PARAMETER;
+                NdisReleaseRWLock(gOvsSwitchContext->dispatchLock, &lockState);
             }
-
-            status = STATUS_SUCCESS;
         }
         ExReleaseResourceLite(&crtInstance->lock);
     }
@@ -598,6 +596,7 @@ OvsAddIpInterfaceNotification(PMIB_IPINTERFACE_ROW ipRow)
         POVS_IPHELPER_INSTANCE instance = NULL;
         MIB_UNICASTIPADDRESS_ROW ipEntry;
         BOOLEAN error = TRUE;
+        LOCK_STATE_EX lockState;
 
         instance = (POVS_IPHELPER_INSTANCE)OvsAllocateMemoryWithTag(
             sizeof(*instance), OVS_IPHELPER_POOL_TAG);
@@ -615,18 +614,19 @@ OvsAddIpInterfaceNotification(PMIB_IPINTERFACE_ROW ipRow)
         if (gOvsSwitchContext == NULL) {
             goto error;
         }
+        NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock, &lockState, 0);
         POVS_VPORT_ENTRY vport = OvsFindVportByHvNameW(gOvsSwitchContext,
                                                        interfaceName,
                                                        sizeof(WCHAR) *
                                                        wcslen(interfaceName));
 
-        if (vport == NULL) {
-            goto error;
+        if (vport != NULL) {
+            RtlCopyMemory(&instance->netCfgId,
+                          &vport->netCfgInstanceId,
+                          sizeof(instance->netCfgId));
+            instance->portNo = vport->portNo;
         }
-        RtlCopyMemory(&instance->netCfgId,
-                      &vport->netCfgInstanceId,
-                      sizeof(instance->netCfgId));
-        instance->portNo = vport->portNo;
+        NdisReleaseRWLock(gOvsSwitchContext->dispatchLock, &lockState);
         RtlZeroMemory(&instance->internalRow, sizeof(MIB_IF_ROW2));
         RtlZeroMemory(&instance->internalIPRow, sizeof(MIB_IPINTERFACE_ROW));
         status = OvsGetIfEntry(&instance->netCfgId,
@@ -1323,12 +1323,12 @@ OvsCleanupFwdTable(VOID)
 
     NdisAcquireRWLockWrite(ovsTableLock, &lockState, 0);
     if (ovsNumFwdEntries) {
-       LIST_FORALL_SAFE(&ovsSortedIPNeighList, link, next) {
-           POVS_IPNEIGH_ENTRY ipn;
+        LIST_FORALL_SAFE(&ovsSortedIPNeighList, link, next) {
+            POVS_IPNEIGH_ENTRY ipn;
 
-           ipn = CONTAINING_RECORD(link, OVS_IPNEIGH_ENTRY, slink);
-           OvsRemoveIPNeighEntry(ipn);
-       }
+            ipn = CONTAINING_RECORD(link, OVS_IPNEIGH_ENTRY, slink);
+            OvsRemoveIPNeighEntry(ipn);
+        }
     }
     for (i = 0; i < OVS_FWD_HASH_TABLE_SIZE; i++) {
         ASSERT(IsListEmpty(&ovsFwdHashTable[i]));
@@ -1542,18 +1542,18 @@ OvsHandleInternalAdapterUp(POVS_IP_HELPER_REQUEST request)
 
         status = OvsGetIPEntry(instance->internalRow.InterfaceLuid, &ipEntry);
         if (status != STATUS_SUCCESS) {
-            OVS_LOG_INFO("Fail to get IP entry for internal port with GUID"
-                         "  %08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x",
-                         instance->netCfgId.Data1,
-                         instance->netCfgId.Data2,
-                         instance->netCfgId.Data3,
-                         *(UINT16 *)instance->netCfgId.Data4,
-                         instance->netCfgId.Data4[2],
-                         instance->netCfgId.Data4[3],
-                         instance->netCfgId.Data4[4],
-                         instance->netCfgId.Data4[5],
-                         instance->netCfgId.Data4[6],
-                         instance->netCfgId.Data4[7]);
+            OVS_LOG_ERROR("Fail to get IP entry for internal port with GUID"
+                          "  %08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x",
+                          instance->netCfgId.Data1,
+                          instance->netCfgId.Data2,
+                          instance->netCfgId.Data3,
+                          *(UINT16 *)instance->netCfgId.Data4,
+                          instance->netCfgId.Data4[2],
+                          instance->netCfgId.Data4[3],
+                          instance->netCfgId.Data4[4],
+                          instance->netCfgId.Data4[5],
+                          instance->netCfgId.Data4[6],
+                          instance->netCfgId.Data4[7]);
         }
 
         ExAcquireResourceExclusiveLite(&ovsInstanceListLock, TRUE);
@@ -1625,7 +1625,7 @@ OvsHandleFwdRequest(POVS_IP_HELPER_REQUEST request)
     NTSTATUS status = STATUS_SUCCESS;
     MIB_IPFORWARD_ROW2 ipRoute;
     MIB_IPNET_ROW2 ipNeigh;
-    OVS_FWD_INFO fwdInfo;
+    OVS_FWD_INFO fwdInfo = { 0 };
     UINT32 ipAddr;
     UINT32 srcAddr;
     POVS_FWD_ENTRY fwdEntry = NULL;
@@ -1651,7 +1651,7 @@ OvsHandleFwdRequest(POVS_IP_HELPER_REQUEST request)
     dst.Ipv4.sin_addr.s_addr = request->fwdReq.tunnelKey.dst;
 
     status = OvsGetRoute(&dst, &ipRoute, &src, &instance, &fwdInfo.vport);
-    if (status != STATUS_SUCCESS) {
+    if (status != STATUS_SUCCESS || instance == NULL) {
         UINT32 ipAddr = dst.Ipv4.sin_addr.s_addr;
         OVS_LOG_INFO("Fail to get route to %d.%d.%d.%d, status: %x",
                      ipAddr & 0xff, (ipAddr >> 8) & 0xff,
@@ -1744,12 +1744,14 @@ fwd_request_done:
         goto fwd_handle_nbl;
     }
     newFWD = TRUE;
-    /*
-     * Cache the result
-     */
-    OvsAddIPFwdCache(fwdEntry, ipf, ipn);
-    NdisReleaseRWLock(ovsTableLock, &lockState);
-    ExReleaseResourceLite(&instance->lock);
+    if (status == STATUS_SUCCESS) {
+        /*
+         * Cache the result
+         */
+        OvsAddIPFwdCache(fwdEntry, ipf, ipn);
+        NdisReleaseRWLock(ovsTableLock, &lockState);
+        ExReleaseResourceLite(&instance->lock);
+    }
 
 fwd_handle_nbl:
 
@@ -1850,24 +1852,6 @@ OvsUpdateIPNeighEntry(UINT32 ipAddr,
     NdisReleaseRWLock(ovsTableLock, &lockState);
 }
 
-
-static VOID
-OvsHandleIPNeighTimeout(UINT32 ipAddr,
-                        PVOID context)
-{
-    MIB_IPNET_ROW2 ipNeigh;
-    NTSTATUS status;
-    POVS_IPHELPER_INSTANCE instance = (POVS_IPHELPER_INSTANCE)context;
-
-    ExAcquireResourceExclusiveLite(&instance->lock, TRUE);
-    status = OvsGetOrResolveIPNeigh(instance->internalRow,
-                                    ipAddr, &ipNeigh);
-    ExReleaseResourceLite(&instance->lock);
-
-    OvsUpdateIPNeighEntry(ipAddr, &ipNeigh, status);
-}
-
-
 /*
  *----------------------------------------------------------------------------
  *  IP Helper system thread handles the following requests:
@@ -1892,7 +1876,8 @@ OvsStartIpHelper(PVOID data)
 
     NdisAcquireSpinLock(&ovsIpHelperLock);
     while (!context->exit) {
-        timeout = 0;
+        KeQuerySystemTime((LARGE_INTEGER *)&timeout);
+        timeout += OVS_IPNEIGH_TIMEOUT;
         while (!IsListEmpty(&ovsIpHelperRequestList)) {
             ovsNumIpHelperRequests--;
             if (context->exit) {
@@ -1916,12 +1901,17 @@ OvsStartIpHelper(PVOID data)
                 head = &ovsInstanceList;
                 LIST_FORALL_SAFE(head, link, next) {
                     POVS_IPHELPER_INSTANCE instance = NULL;
+                    LOCK_STATE_EX lockState;
 
                     instance = CONTAINING_RECORD(link, OVS_IPHELPER_INSTANCE, link);
 
                     ExAcquireResourceExclusiveLite(&instance->lock, TRUE);
                     if (instance->portNo == portNo &&
                         IsEqualGUID(&instance->netCfgId, &netCfgInstanceId)) {
+
+                        NdisAcquireRWLockWrite(ovsTableLock, &lockState, 0);
+                        OvsRemoveAllFwdEntriesWithSrc(instance->ipAddress);
+                        NdisReleaseRWLock(ovsTableLock, &lockState);
 
                         RemoveEntryList(&instance->link);
 
@@ -1932,13 +1922,13 @@ OvsStartIpHelper(PVOID data)
                     }
                     ExReleaseResourceLite(&instance->lock);
                 }
-                ExReleaseResourceLite(&ovsInstanceListLock);
 
                 if (IsListEmpty(&ovsInstanceList)) {
                     OvsCleanupIpHelperRequestList();
 
                     OvsCleanupFwdTable();
                 }
+                ExReleaseResourceLite(&ovsInstanceListLock);
             }
             case OVS_IP_HELPER_FWD_REQUEST:
                 OvsHandleFwdRequest(req);
@@ -1966,11 +1956,17 @@ OvsStartIpHelper(PVOID data)
                 break;
             }
             ipAddr = ipn->ipAddr;
-
+            MIB_IPNET_ROW2 ipNeigh;
+            NTSTATUS status;
+            POVS_IPHELPER_INSTANCE instance = (POVS_IPHELPER_INSTANCE)ipn->context;
+            MIB_IF_ROW2 internalRow = instance->internalRow;
             NdisReleaseSpinLock(&ovsIpHelperLock);
-
             ExAcquireResourceExclusiveLite(&ovsInstanceListLock, TRUE);
-            OvsHandleIPNeighTimeout(ipAddr, ipn->context);
+
+            status = OvsGetOrResolveIPNeigh(internalRow,
+                                            ipAddr, &ipNeigh);
+            OvsUpdateIPNeighEntry(ipAddr, &ipNeigh, status);
+
             ExReleaseResourceLite(&ovsInstanceListLock);
 
             NdisAcquireSpinLock(&ovsIpHelperLock);
