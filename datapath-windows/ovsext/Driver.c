@@ -134,7 +134,7 @@ DriverEntry(PDRIVER_OBJECT driverObject,
 
     driverChars.DevicePnPEventNotifyHandler = NULL;
     driverChars.NetPnPEventHandler = OvsExtNetPnPEvent;
-    driverChars.StatusHandler = NULL;
+    driverChars.StatusHandler = OvsExtStatus;
 
     driverObject->DriverUnload = OvsExtUnload;
 

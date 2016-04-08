@@ -677,7 +677,9 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
     /* Reset the tunnel context so that it doesn't get used after this point. */
     OvsClearTunTxCtx(ovsFwdCtx);
 
-    if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
+    if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL &&
+        OvsFindVportByPortNo(ovsFwdCtx->switchContext,
+        switchFwdInfo.vport->portNo) != NULL) {
         ASSERT(newNbl);
         ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
         ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
@@ -1042,7 +1044,6 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     UINT32 packetLen, mdlLen;
     PNET_BUFFER_LIST newNbl;
     NDIS_STATUS status;
-    PUINT8 tempBuffer[ETH_HEADER_LENGTH];
 
     ASSERT(shiftOffset > ETH_ADDR_LENGTH);
 
@@ -1070,11 +1071,8 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     packetLen = NET_BUFFER_DATA_LENGTH(curNb);
     ASSERT(curNb->Next == NULL);
     curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
-    if (!bufferStart) {
-        return NDIS_STATUS_RESOURCES;
-    }
-    mdlLen -= NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
+    mdlLen = MmGetMdlByteCount(curMdl) -
+             NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
     /* Bail out if L2 + shiftLength is not contiguous in the first buffer. */
     if (MIN(packetLen, mdlLen) < sizeof(EthHdr) + shiftLength) {
         ASSERT(FALSE);
@@ -1083,9 +1081,13 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
                                     L"contiguous");
         return NDIS_STATUS_FAILURE;
     }
-    bufferStart += NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    RtlCopyMemory(tempBuffer, bufferStart, shiftOffset);
-    RtlCopyMemory(bufferStart + shiftLength, tempBuffer, shiftOffset);
+    bufferStart = NdisGetDataBuffer(curNb, 1, NULL, 1, 0);
+    if (!bufferStart) {
+        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
+                                    L"Dropped due to resouces");
+        return NDIS_STATUS_RESOURCES;
+    }
+    RtlMoveMemory(bufferStart + shiftLength, bufferStart, shiftOffset);
     NdisAdvanceNetBufferDataStart(curNb, shiftLength, FALSE, NULL);
 
     if (bufferData) {
@@ -1109,11 +1111,8 @@ OvsPopVlanInPktBuf(OvsForwardingContext *ovsFwdCtx)
      * Declare a dummy vlanTag structure since we need to compute the size
      * of shiftLength. The NDIS one is a unionized structure.
      */
-    NDIS_PACKET_8021Q_INFO vlanTag = {0};
-    UINT32 shiftLength = sizeof(vlanTag.TagHeader);
-    UINT32 shiftOffset = sizeof(DL_EUI48) + sizeof(DL_EUI48);
-
-    return OvsPopFieldInPacketBuf(ovsFwdCtx, shiftOffset, shiftLength, NULL);
+    return OvsPopFieldInPacketBuf(ovsFwdCtx, 2 * ETH_ALEN,
+                                  ETH_LENGTH_OF_VLAN_HEADER, NULL);
 }
 
 
