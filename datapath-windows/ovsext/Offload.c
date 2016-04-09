@@ -701,3 +701,56 @@ OVSGetTcpMSS(PNET_BUFFER_LIST nbl)
             return 0;
     }
 }
+
+NDIS_STATUS
+OvsPartialCopyAndApplySoftCsum(POVS_SWITCH_CONTEXT switchContext,
+                               POVS_PACKET_HDR_INFO layers,
+                               PNET_BUFFER_LIST nbl,
+                               UINT32 headRoom,
+                               UINT32 copySize,
+                               BOOLEAN copyNblInfo,
+                               PNET_BUFFER_LIST *newNbl)
+{
+    NDIS_STATUS status = NDIS_STATUS_SUCCESS;
+    ULONG mss = 0;
+
+    ASSERT(nbl != NULL);
+    ASSERT(*newNbl == NULL);
+
+    if (layers->isTcp) {
+        mss = OVSGetTcpMSS(nbl);
+
+        if (mss) {
+            OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
+            *newNbl = OvsTcpSegmentNBL(switchContext, nbl, layers, mss,
+                                       headRoom);
+            if (*newNbl == NULL) {
+                OVS_LOG_ERROR("Unable to segment NBL");
+                return NDIS_STATUS_FAILURE;
+            }
+            /* Clear out LSO flags after this point */
+            NET_BUFFER_LIST_INFO(*newNbl, TcpLargeSendNetBufferListInfo) = 0;
+        }
+    }
+
+    /* If we didn't split the packet above, make a copy now */
+    if (*newNbl == NULL) {
+        *newNbl = OvsPartialCopyNBL(switchContext, nbl, copySize, headRoom,
+                                    copyNblInfo);
+        if (*newNbl == NULL) {
+            return NDIS_STATUS_RESOURCES;
+        }
+        NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
+        csumInfo.Value = NET_BUFFER_LIST_INFO(nbl,
+                                              TcpIpChecksumNetBufferListInfo);
+        status = OvsApplySWChecksumOnNB(layers, *newNbl, &csumInfo);
+
+        if (status != NDIS_STATUS_SUCCESS) {
+            return NDIS_STATUS_RESOURCES;
+        }
+
+        NET_BUFFER_LIST_INFO(*newNbl, TcpIpChecksumNetBufferListInfo) = 0;
+    }
+
+    return status;
+}

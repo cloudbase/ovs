@@ -43,5 +43,12 @@ NDIS_STATUS OvsApplySWChecksumOnNB(POVS_PACKET_HDR_INFO layers,
                                    PNET_BUFFER_LIST nbl,
                                    PNDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO
                                                                      csumInfo);
+NDIS_STATUS OvsPartialCopyAndApplySoftCsum(POVS_SWITCH_CONTEXT switchContext,
+                                           POVS_PACKET_HDR_INFO layers,
+                                           PNET_BUFFER_LIST nbl,
+                                           UINT32 headRoom,
+                                           UINT32 copySize,
+                                           BOOLEAN copyNblInfo,
+                                           PNET_BUFFER_LIST *newNbl);
 
 #endif /* __OFFLOAD_H_ */

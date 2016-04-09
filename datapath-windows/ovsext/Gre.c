@@ -142,52 +142,22 @@ OvsDoEncapGre(POVS_VPORT_ENTRY vport,
 #if DBG
     UINT32 counterHeadRoom;
 #endif
-    UINT32 packetLength;
-    ULONG mss = 0;
-    ASSERT(*newNbl == NULL);
+    status = OvsPartialCopyAndApplySoftCsum(switchContext,
+                                            layers, curNbl,
+                                            headRoom, 0, FALSE,
+                                            &*newNbl);
 
-    curNb = NET_BUFFER_LIST_FIRST_NB(curNbl);
-    packetLength = NET_BUFFER_DATA_LENGTH(curNb);
+    if (*newNbl == NULL) {
+        OVS_LOG_ERROR("Unable to copy NBL");
+        return NDIS_STATUS_FAILURE;
+    }
 
-    if (layers->isTcp) {
-        mss = OVSGetTcpMSS(curNbl);
-
-        OVS_LOG_TRACE("MSS %u packet len %u", mss,
-                      packetLength);
-        if (mss) {
-            OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
-            *newNbl = OvsTcpSegmentNBL(switchContext, curNbl, layers,
-                                       mss, headRoom);
-            if (*newNbl == NULL) {
-                OVS_LOG_ERROR("Unable to segment NBL");
-                return NDIS_STATUS_FAILURE;
-            }
-            /* Clear out LSO flags after this point */
-            NET_BUFFER_LIST_INFO(*newNbl, TcpLargeSendNetBufferListInfo) = 0;
-        }
+    if (status != NDIS_STATUS_SUCCESS) {
+        goto ret_error;
     }
 
     vportGre = (POVS_GRE_VPORT)GetOvsVportPriv(vport);
     ASSERT(vportGre);
-
-    /* If we didn't split the packet above, make a copy now */
-    if (*newNbl == NULL) {
-        *newNbl = OvsPartialCopyNBL(switchContext, curNbl, 0, headRoom,
-                                    FALSE /*NBL info*/);
-        if (*newNbl == NULL) {
-            OVS_LOG_ERROR("Unable to copy NBL");
-            return NDIS_STATUS_FAILURE;
-        }
-
-        NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
-        csumInfo.Value = NET_BUFFER_LIST_INFO(curNbl,
-                                              TcpIpChecksumNetBufferListInfo);
-
-        status = OvsApplySWChecksumOnNB(layers, *newNbl, &csumInfo);
-        if (status != NDIS_STATUS_SUCCESS) {
-            goto ret_error;
-        }
-    }
 
     curNbl = *newNbl;
     for (curNb = NET_BUFFER_LIST_FIRST_NB(curNbl); curNb != NULL;
