@@ -1039,52 +1039,15 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
                        PUINT8 *bufferData)
 {
     PNET_BUFFER curNb;
-    PMDL curMdl;
     PUINT8 bufferStart;
-    UINT32 packetLen, mdlLen;
-    PNET_BUFFER_LIST newNbl;
-    NDIS_STATUS status;
 
     ASSERT(shiftOffset > ETH_ADDR_LENGTH);
 
-    newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
-                               0, 0, TRUE /* copy NBL info */);
-    if (!newNbl) {
-        ovsActionStats.noCopiedNbl++;
-        return NDIS_STATUS_RESOURCES;
-    }
-
-    /* Complete the original NBL and create a copy to modify. */
-    OvsCompleteNBLForwardingCtx(ovsFwdCtx, L"OVS-Dropped due to copy");
-
-    status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext, newNbl,
-                                  ovsFwdCtx->srcVportNo, 0,
-                                  NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                  NULL, &ovsFwdCtx->layers, FALSE);
-    if (status != NDIS_STATUS_SUCCESS) {
-        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
-                                    L"Dropped due to resouces");
-        return NDIS_STATUS_RESOURCES;
-    }
-
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
-    packetLen = NET_BUFFER_DATA_LENGTH(curNb);
-    ASSERT(curNb->Next == NULL);
-    curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    mdlLen = MmGetMdlByteCount(curMdl) -
-             NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
+    bufferStart = NdisGetDataBuffer(curNb, sizeof(EthHdr) + shiftLength, NULL,
+                                    1, 0);
     /* Bail out if L2 + shiftLength is not contiguous in the first buffer. */
-    if (MIN(packetLen, mdlLen) < sizeof(EthHdr) + shiftLength) {
-        ASSERT(FALSE);
-        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
-                                    L"Dropped due to the buffer is not"
-                                    L"contiguous");
-        return NDIS_STATUS_FAILURE;
-    }
-    bufferStart = NdisGetDataBuffer(curNb, 1, NULL, 1, 0);
     if (!bufferStart) {
-        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
-                                    L"Dropped due to resouces");
         return NDIS_STATUS_RESOURCES;
     }
     RtlMoveMemory(bufferStart + shiftLength, bufferStart, shiftOffset);
@@ -1157,20 +1120,56 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
 {
     NDIS_STATUS status;
     PNET_BUFFER curNb = NULL;
-    PMDL curMdl = NULL;
-    PUINT8 bufferStart = NULL;
     OVS_PACKET_HDR_INFO *layers = &ovsFwdCtx->layers;
     EthHdr *ethHdr = NULL;
     MPLSHdr *mplsHdr = NULL;
-    UINT32 mdlLen = 0, curMdlOffset = 0;
-    PNET_BUFFER_LIST newNbl;
+    PNET_BUFFER_LIST newNbl = NULL;
+    UINT16 hdrSize;
+    ULONG mss = 0;
 
-    newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
-                               layers->l3Offset, MPLS_HLEN, TRUE);
-    if (!newNbl) {
-        ovsActionStats.noCopiedNbl++;
-        return NDIS_STATUS_RESOURCES;
+    if (layers->isTcp || layers->isUdp || layers->isSctp) {
+        hdrSize = layers->l7Offset;
+    } else {
+        hdrSize = layers->l4Offset;
     }
+
+    if (layers->isTcp) {
+        mss = OVSGetTcpMSS(ovsFwdCtx->curNbl);
+
+        if (mss) {
+            OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
+            newNbl = OvsTcpSegmentNBL(ovsFwdCtx->switchContext,
+                                      ovsFwdCtx->curNbl, layers, mss,
+                                      MPLS_HLEN);
+            if (newNbl == NULL) {
+                ovsActionStats.noCopiedNbl++;
+                OVS_LOG_ERROR("Unable to segment NBL");
+                return NDIS_STATUS_FAILURE;
+            }
+            /* Clear out LSO flags after this point */
+            NET_BUFFER_LIST_INFO(newNbl, TcpLargeSendNetBufferListInfo) = 0;
+        }
+    }
+
+    /* If we didn't split the packet above, make a copy now */
+    if (newNbl == NULL) {
+        newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
+                                   hdrSize, MPLS_HLEN, TRUE /*NBL info*/);
+        if (newNbl == NULL) {
+            ovsActionStats.noCopiedNbl++;
+            return NDIS_STATUS_RESOURCES;
+        }
+        NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
+        csumInfo.Value = NET_BUFFER_LIST_INFO(ovsFwdCtx->curNbl,
+                                              TcpIpChecksumNetBufferListInfo);
+        status = OvsApplySWChecksumOnNB(layers, newNbl, &csumInfo);
+
+        if (status != NDIS_STATUS_SUCCESS) {
+            return NDIS_STATUS_RESOURCES;
+        }
+        NET_BUFFER_LIST_INFO(newNbl, TcpIpChecksumNetBufferListInfo) = 0;
+    }
+
     OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                 L"Complete after partial copy.");
 
@@ -1179,41 +1178,36 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
                                   NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
                                   NULL, &ovsFwdCtx->layers, FALSE);
     if (status != NDIS_STATUS_SUCCESS) {
-        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
-                                    L"OVS-Dropped due to resources");
         return NDIS_STATUS_RESOURCES;
     }
 
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
-    ASSERT(curNb->Next == NULL);
 
-    status = NdisRetreatNetBufferDataStart(curNb, MPLS_HLEN, 0, NULL);
-    if (status != NDIS_STATUS_SUCCESS) {
-        return status;
+    for (curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl); curNb != NULL;
+         curNb = curNb->Next) {
+        status = NdisRetreatNetBufferDataStart(curNb, MPLS_HLEN, 0, NULL);
+        if (status != NDIS_STATUS_SUCCESS) {
+            goto ret_error;
+        }
+
+        ethHdr = (EthHdr *)NdisGetDataBuffer(curNb, sizeof(EthHdr) + MPLS_HLEN,
+                                             NULL, 1, 0);
+        if (!ethHdr) {
+            status = NDIS_STATUS_RESOURCES;
+            goto ret_error;
+        }
+        RtlMoveMemory(ethHdr, (UINT8*)ethHdr + MPLS_HLEN, sizeof(*ethHdr));
+        ethHdr->Type = mpls->mpls_ethertype;
+
+        mplsHdr = (MPLSHdr *)(ethHdr + 1);
+        mplsHdr->lse = mpls->mpls_lse;
     }
-
-    curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
-    if (!curMdl) {
-        ovsActionStats.noResource++;
-        return NDIS_STATUS_RESOURCES;
-    }
-
-    curMdlOffset = NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    mdlLen -= curMdlOffset;
-    ASSERT(mdlLen >= MPLS_HLEN);
-
-    ethHdr = (EthHdr *)(bufferStart + curMdlOffset);
-    RtlMoveMemory(ethHdr, (UINT8*)ethHdr + MPLS_HLEN, sizeof(*ethHdr));
-    ethHdr->Type = mpls->mpls_ethertype;
-
-    mplsHdr = (MPLSHdr *)(ethHdr + 1);
-    mplsHdr->lse = mpls->mpls_lse;
 
     layers->l3Offset += MPLS_HLEN;
     layers->l4Offset += MPLS_HLEN;
 
-    return NDIS_STATUS_SUCCESS;
+ret_error:
+    return status;
 }
 
 /*
@@ -1279,28 +1273,18 @@ OvsUpdateEthHeader(OvsForwardingContext *ovsFwdCtx,
                    const struct ovs_key_ethernet *ethAttr)
 {
     PNET_BUFFER curNb;
-    PMDL curMdl;
     PUINT8 bufferStart;
     EthHdr *ethHdr;
-    UINT32 packetLen, mdlLen;
 
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
     ASSERT(curNb->Next == NULL);
-    packetLen = NET_BUFFER_DATA_LENGTH(curNb);
-    curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
+
+    bufferStart = NdisGetDataBuffer(curNb, sizeof(EthHdr), NULL, 1, 0);
     if (!bufferStart) {
         ovsActionStats.noResource++;
         return NDIS_STATUS_RESOURCES;
     }
-    mdlLen -= NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    ASSERT(mdlLen > 0);
-    /* Bail out if the L2 header is not in a contiguous buffer. */
-    if (MIN(packetLen, mdlLen) < sizeof *ethHdr) {
-        ASSERT(FALSE);
-        return NDIS_STATUS_FAILURE;
-    }
-    ethHdr = (EthHdr *)(bufferStart + NET_BUFFER_CURRENT_MDL_OFFSET(curNb));
+    ethHdr = (EthHdr *)(bufferStart);
 
     RtlCopyMemory(ethHdr->Destination, ethAttr->eth_dst,
                    sizeof ethHdr->Destination);
@@ -1321,10 +1305,8 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
                     const struct ovs_key_ipv4 *ipAttr)
 {
     PNET_BUFFER curNb;
-    PMDL curMdl;
-    ULONG curMdlOffset;
     PUINT8 bufferStart;
-    UINT32 mdlLen, hdrSize, packetLen;
+    UINT32 hdrSize;
     OVS_PACKET_HDR_INFO *layers = &ovsFwdCtx->layers;
     NDIS_STATUS status;
     IPHdr *ipHdr;
@@ -1340,27 +1322,16 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
      */
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
     ASSERT(curNb->Next == NULL);
-    packetLen = NET_BUFFER_DATA_LENGTH(curNb);
-    curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
-    if (!bufferStart) {
-        ovsActionStats.noResource++;
-        return NDIS_STATUS_RESOURCES;
-    }
-    curMdlOffset = NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    mdlLen -= curMdlOffset;
-    ASSERT((INT)mdlLen >= 0);
 
-    if (layers->isTcp || layers->isUdp) {
-        hdrSize = layers->l4Offset +
-                  layers->isTcp ? sizeof (*tcpHdr) : sizeof (*udpHdr);
+    if (layers->isTcp || layers->isUdp || layers->isSctp) {
+        hdrSize = layers->l7Offset;
     } else {
-        hdrSize = layers->l3Offset + sizeof (*ipHdr);
+        hdrSize = layers->l4Offset;
     }
 
-    /* Count of number of bytes of valid data there are in the first MDL. */
-    mdlLen = MIN(packetLen, mdlLen);
-    if (mdlLen < hdrSize) {
+    bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 1, 0);
+    /* Reallocate the NBL to try to make it contiguous */
+    if (bufferStart == NULL) {
         PNET_BUFFER_LIST newNbl;
         newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
                                    hdrSize, 0, TRUE /*copy NBL info*/);
@@ -1383,23 +1354,21 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
 
         curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
         ASSERT(curNb->Next == NULL);
-        curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-        NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
-        if (!curMdl) {
-            ovsActionStats.noResource++;
+        bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 1, 0);
+        if (bufferStart == NULL) {
+            ASSERT(0);
+            OvsCompleteNBLForwardingCtx(ovsFwdCtx,
+                                        L"OVS-Dropped due to resources");
             return NDIS_STATUS_RESOURCES;
         }
-        curMdlOffset = NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-        mdlLen -= curMdlOffset;
-        ASSERT(mdlLen >= hdrSize);
     }
 
-    ipHdr = (IPHdr *)(bufferStart + curMdlOffset + layers->l3Offset);
+    ipHdr = (IPHdr *)(bufferStart + layers->l3Offset);
 
     if (layers->isTcp) {
-        tcpHdr = (TCPHdr *)(bufferStart + curMdlOffset + layers->l4Offset);
+        tcpHdr = (TCPHdr *)(bufferStart + layers->l4Offset);
     } else if (layers->isUdp) {
-        udpHdr = (UDPHdr *)(bufferStart + curMdlOffset + layers->l4Offset);
+        udpHdr = (UDPHdr *)(bufferStart + layers->l4Offset);
     }
 
     /*

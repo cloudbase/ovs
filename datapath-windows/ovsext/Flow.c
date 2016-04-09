@@ -1950,6 +1950,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
                 memcpy(arpKey->arpSha, arp->arp_sha, ETH_ADDR_LENGTH);
                 memcpy(arpKey->arpTha, arp->arp_tha, ETH_ADDR_LENGTH);
             }
+            layers->l4Offset = layers->l3Offset + sizeof(EtherArp);
         }
     } else if (OvsEthertypeIsMpls(flow->l2.dlType)) {
         MPLSHdr mplsStorage;
@@ -1957,6 +1958,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
         MplsKey *mplsKey = &flow->mplsKey;
         ((UINT64 *)mplsKey)[0] = 0;
         flow->l2.keyLen += OVS_MPLS_KEY_SIZE;
+        layers->l4Offset = layers->l3Offset;
 
         /*
          * In the presence of an MPLS label stack the end of the L2
