@@ -1077,10 +1077,10 @@ static NTSTATUS
 GetNICAlias(PNDIS_SWITCH_NIC_PARAMETERS nicParam,
             IF_COUNTED_STRING *portFriendlyName)
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    WCHAR interfaceName[IF_MAX_STRING_SIZE] = { 0 };
-    NET_LUID interfaceLuid = { 0 };
-    size_t len = 0;
+    NTSTATUS status;
+    WCHAR interfaceName[IF_MAX_STRING_SIZE + 1];
+    NET_LUID interfaceLuid;
+    size_t len;
 
     if (nicParam->NicType == NdisSwitchNicTypeInternal) {
         RtlCopyMemory(portFriendlyName, &nicParam->NicFriendlyName,
