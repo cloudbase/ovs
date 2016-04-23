@@ -1728,9 +1728,9 @@ cleanup:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 
     return STATUS_SUCCESS;
@@ -2087,9 +2087,9 @@ Cleanup:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 
     return STATUS_SUCCESS;
@@ -2321,6 +2321,7 @@ Cleanup:
     if ((nlError != NL_ERROR_SUCCESS) && (nlError != NL_ERROR_PENDING)) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
 
         if (vport && vportAllocated == TRUE) {
             if (vportInitialized == TRUE) {
@@ -2340,8 +2341,7 @@ Cleanup:
             OvsFreeMemoryWithTag(vport, OVS_VPORT_POOL_TAG);
         }
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 
     return (status == STATUS_PENDING) ? STATUS_PENDING : STATUS_SUCCESS;
@@ -2449,9 +2449,9 @@ Cleanup:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 
     return STATUS_SUCCESS;
@@ -2541,9 +2541,9 @@ Cleanup:
     if ((nlError != NL_ERROR_SUCCESS) && (nlError != NL_ERROR_PENDING)) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 
     return (status == STATUS_PENDING) ? STATUS_PENDING : STATUS_SUCCESS;
@@ -2576,10 +2576,11 @@ OvsTunnelVportPendingRemove(PVOID context,
 
             *replyLen = msgOut->nlMsg.nlmsgLen;
         } else {
-            POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)msgOut;
+            POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
+                        tunnelContext->outputBuffer;
+            UINT32 msgErrorLen = tunnelContext->outputLength;
 
-            NlBuildErrorMsg(msgIn, msgError, nlError);
-            *replyLen = msgError->nlMsg.nlmsgLen;
+            NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
         }
     }
 
@@ -2718,12 +2719,13 @@ OvsTunnelVportPendingInit(PVOID context,
     } while (error);
 
     if (error) {
-        POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR) msgOut;
+        POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
+            tunnelContext->outputBuffer;
+        UINT32 msgErrorLen = tunnelContext->outputLength;
 
         OvsCleanupVxlanTunnel(NULL, vport, NULL, NULL);
         OvsFreeMemory(vport);
 
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
     }
 }

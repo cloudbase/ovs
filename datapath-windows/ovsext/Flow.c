@@ -276,20 +276,10 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         goto done;
     }
 
-    /* Get all the top level Flow attributes */
-    if ((NlAttrParse(nlMsgHdr, attrOffset, NlMsgAttrsLen(nlMsgHdr),
-                     nlFlowPolicy, ARRAY_SIZE(nlFlowPolicy),
-                     flowAttrs, ARRAY_SIZE(flowAttrs)))
-                     != TRUE) {
-        OVS_LOG_ERROR("Attr Parsing failed for msg: %p",
-                       nlMsgHdr);
-        rc = STATUS_INVALID_PARAMETER;
-        goto done;
-    }
-
-    /* FLOW_DEL command w/o any key input is a flush case. */
+    /* FLOW_DEL command w/o any key input is a flush case.
+       If we don't have any attr, we treat this as a flush command*/
     if ((genlMsgHdr->cmd == OVS_FLOW_CMD_DEL) &&
-        (!(flowAttrs[OVS_FLOW_ATTR_KEY]))) {
+        (!NlMsgAttrsLen(nlMsgHdr))) {
 
         rc = OvsFlushFlowIoctl(ovsHdr->dp_ifindex);
 
@@ -312,6 +302,17 @@ OvsFlowNlCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
        }
 
        goto done;
+    }
+
+    /* Get all the top level Flow attributes */
+    if ((NlAttrParse(nlMsgHdr, attrOffset, NlMsgAttrsLen(nlMsgHdr),
+        nlFlowPolicy, ARRAY_SIZE(nlFlowPolicy),
+        flowAttrs, ARRAY_SIZE(flowAttrs)))
+        != TRUE) {
+        OVS_LOG_ERROR("Attr Parsing failed for msg: %p",
+            nlMsgHdr);
+        rc = STATUS_INVALID_PARAMETER;
+        goto done;
     }
 
     if (flowAttrs[OVS_FLOW_ATTR_PROBE]) {
@@ -390,8 +391,9 @@ done:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
                                        usrParamsCtx->outputBuffer;
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
+
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
         rc = STATUS_SUCCESS;
     }
 
@@ -559,8 +561,9 @@ done:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
                                       usrParamsCtx->outputBuffer;
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
+
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
         rc = STATUS_SUCCESS;
     }
 
@@ -697,8 +700,9 @@ done:
     if (nlError != NL_ERROR_SUCCESS) {
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
                                       usrParamsCtx->outputBuffer;
-        NlBuildErrorMsg(msgIn, msgError, nlError);
-        *replyLen = msgError->nlMsg.nlmsgLen;
+        UINT32 msgErrorLen = usrParamsCtx->outputLength;
+
+        NlBuildErrorMsg(msgIn, msgError, msgErrorLen, nlError, replyLen);
         rc = STATUS_SUCCESS;
     }
 
