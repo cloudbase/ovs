@@ -1045,10 +1045,16 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
 
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
     bufferStart = NdisGetDataBuffer(curNb, shiftOffset + shiftLength, NULL,
-                                    2, 0);
+                                    1, 0);
     /* Bail out if L2 + shiftLength is not contiguous in the first buffer. */
     if (!bufferStart) {
         return NDIS_STATUS_RESOURCES;
+    }
+    if (!bufferData) {
+        EthHdr *ethHdr = (EthHdr *)bufferStart;
+        if (ethHdr->Type != htons(0x8100)) {
+            return NDIS_STATUS_SUCCESS;
+        }
     }
     RtlMoveMemory(bufferStart + shiftLength, bufferStart, shiftOffset);
     NdisAdvanceNetBufferDataStart(curNb, shiftLength, FALSE, NULL);
@@ -1162,7 +1168,7 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
         }
 
         ethHdr = (EthHdr *)NdisGetDataBuffer(curNb, sizeof(EthHdr) + MPLS_HLEN,
-                                             NULL, 2, 0);
+                                             NULL, 1, 0);
         if (!ethHdr) {
             status = NDIS_STATUS_RESOURCES;
             goto ret_error;
@@ -1250,7 +1256,7 @@ OvsUpdateEthHeader(OvsForwardingContext *ovsFwdCtx,
     curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
     ASSERT(curNb->Next == NULL);
 
-    bufferStart = NdisGetDataBuffer(curNb, sizeof(EthHdr), NULL, 2, 0);
+    bufferStart = NdisGetDataBuffer(curNb, sizeof(EthHdr), NULL, 1, 0);
     if (!bufferStart) {
         ovsActionStats.noResource++;
         return NDIS_STATUS_RESOURCES;
@@ -1300,7 +1306,7 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
         hdrSize = layers->l4Offset;
     }
 
-    bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 2, 0);
+    bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 1, 0);
     /* Reallocate the NBL to try to make it contiguous */
     if (bufferStart == NULL) {
         PNET_BUFFER_LIST newNbl;
@@ -1325,7 +1331,7 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
 
         curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
         ASSERT(curNb->Next == NULL);
-        bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 2, 0);
+        bufferStart = NdisGetDataBuffer(curNb, hdrSize, NULL, 1, 0);
         if (bufferStart == NULL) {
             ASSERT(0);
             OvsCompleteNBLForwardingCtx(ovsFwdCtx,
@@ -1642,7 +1648,6 @@ OvsActionsExecute(POVS_SWITCH_CONTEXT switchContext,
         case OVS_ACTION_ATTR_USERSPACE:
         {
             PNL_ATTR userdataAttr;
-            PNL_ATTR queueAttr;
             POVS_PACKET_QUEUE_ELEM elem;
             BOOLEAN isRecv = FALSE;
 
@@ -1656,11 +1661,10 @@ OvsActionsExecute(POVS_SWITCH_CONTEXT switchContext,
                 }
             }
 
-            queueAttr = NlAttrFindNested(a, OVS_USERSPACE_ATTR_PID);
             userdataAttr = NlAttrFindNested(a, OVS_USERSPACE_ATTR_USERDATA);
 
-            elem = OvsCreateQueueNlPacket((PVOID)userdataAttr,
-                                    userdataAttr->nlaLen,
+            elem = OvsCreateQueueNlPacket((PVOID)NlAttrGet(userdataAttr),
+                                    NlAttrGetSize(userdataAttr),
                                     OVS_PACKET_CMD_ACTION,
                                     vport, key, ovsFwdCtx.curNbl,
                                     NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx.curNbl),

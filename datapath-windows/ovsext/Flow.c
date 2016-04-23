@@ -863,8 +863,13 @@ MapFlowKeyToNlKey(PNL_BUFFER nlBuf,
         goto done;
     }
 
-    if (!NlMsgPutTailU16(nlBuf, OVS_KEY_ATTR_ETHERTYPE,
-                         flowKey->l2.dlType)) {
+    if (flowKey->l2.dlType != 0) {
+        if (!NlMsgPutTailU16(nlBuf, OVS_KEY_ATTR_ETHERTYPE,
+            flowKey->l2.dlType)) {
+            rc = STATUS_UNSUCCESSFUL;
+            goto done;
+        }
+    } else {
         rc = STATUS_UNSUCCESSFUL;
         goto done;
     }
@@ -1845,7 +1850,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
         flow->l2.dlType = eth->e802_3.snap.snapType.typeNBO;
         layers->l3Offset = ETH_HEADER_LEN_802_3 + offset;
     } else {
-        flow->l2.dlType = htons(OVSWIN_DL_TYPE_NONE);
+        flow->l2.dlType = 0;
         layers->l3Offset = ETH_HEADER_LEN_DIX + offset;
     }
 

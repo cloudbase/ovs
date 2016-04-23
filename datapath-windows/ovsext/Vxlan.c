@@ -274,10 +274,8 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
         vxlanHdr->locallyReplicate = 0;
         vxlanHdr->flags2 = 0;
         vxlanHdr->reserved1 = 0;
-        if (tunKey->flags | OVS_TNL_F_KEY) {
-            vxlanHdr->vxlanID = VXLAN_TUNNELID_TO_VNI(tunKey->tunnelId);
-            vxlanHdr->instanceID = 1;
-        }
+        vxlanHdr->vxlanID = VXLAN_TUNNELID_TO_VNI(tunKey->tunnelId);
+        vxlanHdr->instanceID = 1;
         vxlanHdr->reserved2 = 0;
     }
     return STATUS_SUCCESS;
@@ -404,7 +402,7 @@ OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
      * Create a copy of the NBL so that we have all the headers in one MDL.
      */
     *newNbl = OvsPartialCopyNBL(switchContext, curNbl,
-                                tunnelSize + OVS_DEFAULT_COPY_SIZE, 0,
+                                tunnelSize, 0,
                                 TRUE /*copy NBL info */);
 
     if (*newNbl == NULL) {

@@ -253,7 +253,7 @@ OvsGetIPEntry(NET_LUID interfaceLuid,
     NTSTATUS status;
     UINT32 i;
 
-    if (ipEntry == NULL || ipEntry == NULL) {
+    if (ipEntry == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
 

@@ -286,7 +286,7 @@ OvsDecapGre(POVS_SWITCH_CONTEXT switchContext,
      * Create a copy of the NBL so that we have all the headers in one MDL.
      */
     *newNbl = OvsPartialCopyNBL(switchContext, curNbl,
-                                tunnelSize + OVS_DEFAULT_COPY_SIZE, 0,
+                                tunnelSize, 0,
                                 TRUE /*copy NBL info */);
 
     if (*newNbl == NULL) {
