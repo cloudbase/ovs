@@ -1935,7 +1935,8 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
             OvsParseIcmpV6(packet, flow, layers);
             flow->l2.keyLen += (OVS_ICMPV6_KEY_SIZE - OVS_IPV6_KEY_SIZE);
         }
-    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP)) {
+    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP) ||
+               flow->l2.dlType == htons(ETH_TYPE_RARP)) {
         EtherArp arpStorage;
         const EtherArp *arp;
         ArpKey *arpKey = &flow->arpKey;
@@ -1951,14 +1952,14 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
             /* We only match on the lower 8 bits of the opcode. */
             if (ntohs(arp->ea_hdr.ar_op) <= 0xff) {
                 arpKey->nwProto = (UINT8)ntohs(arp->ea_hdr.ar_op);
+            } else {
+                arpKey->nwProto = 0;
             }
-            if (arpKey->nwProto == ARPOP_REQUEST
-                || arpKey->nwProto == ARPOP_REPLY) {
-                memcpy(&arpKey->nwSrc, arp->arp_spa, 4);
-                memcpy(&arpKey->nwDst, arp->arp_tpa, 4);
-                memcpy(arpKey->arpSha, arp->arp_sha, ETH_ADDR_LENGTH);
-                memcpy(arpKey->arpTha, arp->arp_tha, ETH_ADDR_LENGTH);
-            }
+
+            memcpy(&arpKey->nwSrc, arp->arp_spa, 4);
+            memcpy(&arpKey->nwDst, arp->arp_tpa, 4);
+            memcpy(arpKey->arpSha, arp->arp_sha, ETH_ADDR_LENGTH);
+            memcpy(arpKey->arpTha, arp->arp_tha, ETH_ADDR_LENGTH);
             layers->l4Offset = layers->l3Offset + sizeof(EtherArp);
         }
     } else if (OvsEthertypeIsMpls(flow->l2.dlType)) {
