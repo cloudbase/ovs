@@ -87,6 +87,9 @@
     <Inf2Cat>
       <UseLocalTime>true</UseLocalTime>
     </Inf2Cat>
+    <Inf>
+      <TimeStamp>2.5.0.1</TimeStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Release|x64'">
     <Inf2Cat>
