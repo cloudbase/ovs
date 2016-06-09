@@ -14,8 +14,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 6,3,9600,17298
- PRODUCTVERSION 6,3,9600,17298
+ FILEVERSION 2,5,0,1
+ PRODUCTVERSION 2,5,0,1
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x9L
@@ -30,14 +30,14 @@ BEGIN
     BEGIN
         BLOCK "000004b0"
         BEGIN
-            VALUE "CompanyName", "Open vSwitch"
+            VALUE "CompanyName", "Cloudbase Solutions Srl"
             VALUE "FileDescription", "Open vSwitch Extension"
-            VALUE "FileVersion", "6.3.9600.17298"
+            VALUE "FileVersion", "2.5.0.1"
             VALUE "InternalName", "OVSExt.SYS"
             VALUE "LegalCopyright", "� Licensed under the Apache License, Version 2.0 (the ""License"")"
             VALUE "OriginalFilename", "OVSExt.SYS"
-            VALUE "ProductName", "Open vSwitch 8/8.1 DDK driver"
-            VALUE "ProductVersion", "6.3.9600.17298"
+            VALUE "ProductName", "Open vSwitch Extension"
+            VALUE "ProductVersion", "2.5.0.1"
         END
     END
     BLOCK "VarFileInfo"
@@ -53,17 +53,17 @@ END
 // TEXTINCLUDE
 //
 
-1 TEXTINCLUDE
+1 TEXTINCLUDE 
 BEGIN
     "resource.h\0"
 END
 
-2 TEXTINCLUDE
+2 TEXTINCLUDE 
 BEGIN
     "\0"
 END
 
-3 TEXTINCLUDE
+3 TEXTINCLUDE 
 BEGIN
     "\r\n"
     "\0"
@@ -85,3 +85,4 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
+

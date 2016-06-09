@@ -1,7 +1,3 @@
-;
-; Copyright (c) VMware. All Rights Reserved.
-;
-
 [version]
 Signature   = "$Windows NT$"
 Class       = NetService
@@ -80,6 +76,6 @@ AddReg          = Common.Params.reg
 DelService=OVSExt,0x200
 
 [Strings]
-OVS = "Open vSwitch"
+OVS = "Cloudbase Solutions Srl"
 OVSExt_Desc = "Open vSwitch Extension"
 OVSExt_HelpText = "Open vSwitch forwarding switch extension"

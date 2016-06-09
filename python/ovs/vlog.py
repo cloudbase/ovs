@@ -1,5 +1,5 @@
 
-# Copyright (c) 2011, 2012, 2013 Nicira, Inc.
+# Copyright (c) 2011, 2012, 2013, 2015, 2016 Nicira, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -238,7 +238,9 @@ class Vlog:
 
         ovs.unixctl.command_register("vlog/reopen", "", 0, 0,
                                      Vlog._unixctl_vlog_reopen, None)
-        ovs.unixctl.command_register("vlog/set", "spec", 1, sys.maxint,
+        ovs.unixctl.command_register("vlog/close", "", 0, 0,
+                                     Vlog._unixctl_vlog_close, None)
+        ovs.unixctl.command_register("vlog/set", "spec", 1, sys.maxsize,
                                      Vlog._unixctl_vlog_set, None)
         ovs.unixctl.command_register("vlog/list", "", 0, 0,
                                      Vlog._unixctl_vlog_list, None)
@@ -385,6 +387,13 @@ class Vlog:
             conn.reply(None)
         else:
             conn.reply("Logging to file not configured")
+
+    @staticmethod
+    def _unixctl_vlog_close(conn, unused_argv, unused_aux):
+        if Vlog.__log_file:
+            logger = logging.getLogger("file")
+            logger.removeHandler(Vlog.__file_handler)
+        conn.reply(None)
 
     @staticmethod
     def _unixctl_vlog_set(conn, argv, unused_aux):
