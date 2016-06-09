@@ -1435,6 +1435,8 @@ OvsAddConfiguredSwitchPorts(POVS_SWITCH_CONTEXT switchContext)
          }
     }
 
+    status = NDIS_STATUS_SUCCESS;
+
 cleanup:
     if (status != NDIS_STATUS_SUCCESS) {
         OvsClearAllSwitchVports(switchContext);
@@ -1483,6 +1485,9 @@ OvsInitConfiguredSwitchNics(POVS_SWITCH_CONTEXT switchContext)
             HvConnectNic(switchContext, nicParam);
         }
     }
+
+    status = NDIS_STATUS_SUCCESS;
+
 cleanup:
 
     OvsFreeSwitchNicsArray(nicArray);
