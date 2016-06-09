@@ -791,6 +791,11 @@ OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
     PLIST_ENTRY head, link;
     UINT i;
 
+    /* Do not check for port names with 0 length */
+    if (!wstrSize) {
+        return NULL;
+    }
+
     for (i = 0; i < OVS_MAX_VPORT_ARRAY_SIZE; i++) {
         head = &(switchContext->portIdHashArray[i]);
         LIST_FORALL(head, link) {
