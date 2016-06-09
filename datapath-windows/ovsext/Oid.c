@@ -390,7 +390,7 @@ OvsExtOidRequest(NDIS_HANDLE filterModuleContext,
     switch(clonedOidRequest->RequestType) {
     case NdisRequestSetInformation:
         status = OvsProcessSetOid(switchObject, clonedOidRequest,
-                                                   &completeOid);
+                                  &completeOid);
         break;
     case NdisRequestMethod:
         status = OvsProcessMethodOid(switchObject, clonedOidRequest,
@@ -403,7 +403,7 @@ OvsExtOidRequest(NDIS_HANDLE filterModuleContext,
     }
 
     if (completeOid == TRUE) {
-        /* dont leave any reference back to original request,
+        /* do not leave any reference back to original request,
          * even if we are freeing it up. */
         OVS_LOG_INFO("Complete True oidRequest %p.", oidRequest);
         OvsOidSetOrigRequest(clonedOidRequest, NULL);
