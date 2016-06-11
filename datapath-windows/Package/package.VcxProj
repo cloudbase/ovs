@@ -82,11 +82,16 @@
     <Inf2Cat>
       <UseLocalTime>true</UseLocalTime>
     </Inf2Cat>
+    <Inf>
+      <TimeStamp>2.5.0.1</TimeStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|x64'">
     <Inf2Cat>
       <UseLocalTime>true</UseLocalTime>
     </Inf2Cat>
+    <Inf />
+    <Inf />
     <Inf>
       <TimeStamp>2.5.0.1</TimeStamp>
     </Inf>
@@ -95,11 +100,18 @@
     <Inf2Cat>
       <UseLocalTime>true</UseLocalTime>
     </Inf2Cat>
+    <Inf>
+      <TimeStamp>2.5.0.1</TimeStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|x64'">
     <Inf2Cat>
       <UseLocalTime>true</UseLocalTime>
     </Inf2Cat>
+    <Inf />
+    <Inf>
+      <TimeStamp>2.5.0.1</TimeStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemGroup>
     <!--Inf Include="DriverInf.inv" /-->
