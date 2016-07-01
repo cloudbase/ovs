@@ -680,7 +680,9 @@ boolean create_wmi_port(char* name) {
                                    L"SELECT * "
                                    L"FROM Msvm_EthernetSwitchExtension "
                                    L"WHERE "
-                                   L"ElementName=\"Open vSwitch Extension\"",
+                                   L"ElementName=\"Open vSwitch Extension\" "
+                                   L"AND EnabledState=2 "
+                                   L"AND HealthState=5",
                                    WBEM_FLAG_FORWARD_ONLY |
                                    WBEM_FLAG_RETURN_IMMEDIATELY,
                                    NULL,
@@ -699,22 +701,16 @@ boolean create_wmi_port(char* name) {
     wcscpy_s(internal_port_query, sizeof(internal_port_query),
              L"SELECT * FROM Msvm_VirtualEthernetSwitch WHERE Name = \"");
 
-    if (get_ushort_value(pcls_obj, L"EnabledState") == 2 &&
-        get_ushort_value(pcls_obj, L"HealthState") == 5)  {
-            hres = pcls_obj->lpVtbl->Get(pcls_obj, L"SystemName", 0,
-                                         &vt_prop, 0, 0);
-            if (FAILED(hres)) {
-                retval = false;
-                goto error;
-            }
-
-            wcscat_s(internal_port_query, sizeof(internal_port_query),
-                     vt_prop.bstrVal);
-    } else {
-        VLOG_WARN("Open vSwitch Extension is not running on any switch");
+    hres = pcls_obj->lpVtbl->Get(pcls_obj, L"SystemName", 0,
+                                 &vt_prop, 0, 0);
+    if (FAILED(hres)) {
         retval = false;
         goto error;
     }
+
+    wcscat_s(internal_port_query, sizeof(internal_port_query),
+             vt_prop.bstrVal);
+
     VariantClear(&vt_prop);
     pcls_obj->lpVtbl->Release(pcls_obj);
     pcls_obj = NULL;
