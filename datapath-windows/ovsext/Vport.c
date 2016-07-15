@@ -1425,10 +1425,6 @@ OvsAddConfiguredSwitchPorts(POVS_SWITCH_CONTEXT switchContext)
     for (arrIndex = 0; arrIndex < portArray->NumElements; arrIndex++) {
          portParam = NDIS_SWITCH_PORT_AT_ARRAY_INDEX(portArray, arrIndex);
 
-         if (portParam->IsValidationPort) {
-             continue;
-         }
-
          status = HvCreatePort(switchContext, portParam, 0);
          if (status != STATUS_SUCCESS && status != STATUS_DATA_NOT_ACCEPTED) {
              break;
