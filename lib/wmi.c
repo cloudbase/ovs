@@ -25,12 +25,12 @@
 VLOG_DEFINE_THIS_MODULE(wmi);
 
 /* WMI Job values */
-enum JobState
+enum job_status
 {
-    starting = 3,
-    running = 4,
-    completed = 7,
-    wait = 4096
+    job_starting = 3,
+    job_running = 4,
+    job_completed = 7,
+    job_wait = 4096
 };
 
 /* This function will output the appropriate message for a given HRESULT */
@@ -66,64 +66,73 @@ check_return_value(HRESULT hres)
     return true;
 }
 
-/* This function retrieves the UINT16 value from a given class object with
+/* This function retrieves the uint16_t value from a given class object with
  * the field name field_name */
-uint16_t
-get_uint16_t_value(IWbemClassObject* pcls_obj, wchar_t* field_name)
+HRESULT
+get_uint16_t_value(IWbemClassObject* pcls_obj, wchar_t* field_name,
+                   uint16_t* value)
 {
-    uint16_t retval = 0;
-
     VARIANT vt_prop;
     VariantInit(&vt_prop);
     HRESULT hres = pcls_obj->lpVtbl->Get(pcls_obj, field_name, 0, &vt_prop,
                                          0, 0);
-    retval = V_UI2(&vt_prop);
-    VariantClear(&vt_prop);
-    check_return_value(hres);
 
-    return retval;
+    if (FAILED(hres)) {
+        return hres;
+    }
+
+    *value = V_UI2(&vt_prop);
+    VariantClear(&vt_prop);
+
+    return S_OK;
 }
 
-/* This function retrieves the UINT values from a given class object with
- * the field name field_name */
-unsigned int
-get_uint_value(IWbemClassObject* pcls_obj, wchar_t* field_name)
+/* This function retrieves the unsigned int values from a given class object
+ * with the field name field_name */
+HRESULT
+get_uint_value(IWbemClassObject* pcls_obj, wchar_t* field_name,
+               unsigned int* value)
 {
-    unsigned retval = 0;
-
     VARIANT vt_prop;
     VariantInit(&vt_prop);
     HRESULT hres = pcls_obj->lpVtbl->Get(pcls_obj,field_name, 0, &vt_prop,
                                          0, 0);
-    retval = V_UI4(&vt_prop);
-    VariantClear(&vt_prop);
-    check_return_value(hres);
 
-    return retval;
+    if (FAILED(hres)) {
+        return hres;
+    }
+
+    *value = V_UI4(&vt_prop);
+    VariantClear(&vt_prop);
+
+    return S_OK;
 }
 
 /* This function retrieves the unsigned short value from a given class object
  * with the field name field_name */
-unsigned short
-get_ushort_value(IWbemClassObject* pcls_obj, wchar_t* field_name)
+HRESULT
+get_ushort_value(IWbemClassObject* pcls_obj, wchar_t* field_name,
+                 unsigned short* value)
 {
-    unsigned short retval = 0;
-
     VARIANT vt_prop;
     VariantInit(&vt_prop);
     HRESULT hres = pcls_obj->lpVtbl->Get(pcls_obj, field_name, 0, &vt_prop,
                                          0, 0);
-    retval = V_UI2(&vt_prop);
-    VariantClear(&vt_prop);
-    check_return_value(hres);
 
-    return retval;
+    if (FAILED(hres)) {
+        return hres;
+    }
+
+    *value = V_UI2(&vt_prop);
+    VariantClear(&vt_prop);
+
+    return S_OK;
 }
 
 /* This function retrieves the BSTR value from a given class object with
  * the field name field_name to a preallocated destination dest and with the
  * maximum length max_dest_lgth */
-void
+HRESULT
 get_str_value(IWbemClassObject* pcls_obj, wchar_t* field_name, wchar_t* dest,
               int max_dest_lgth)
 {
@@ -133,12 +142,20 @@ get_str_value(IWbemClassObject* pcls_obj, wchar_t* field_name, wchar_t* dest,
     HRESULT hres = pcls_obj->lpVtbl->Get(pcls_obj, field_name, 0, &vt_prop,
                                          0, 0);
 
-    wcscpy_s(dest, max_dest_lgth, vt_prop.bstrVal);
+    if (FAILED(hres)) {
+        VariantClear(&vt_prop);
+        return hres;
+    }
+
+    if (wcscpy_s(dest, max_dest_lgth, vt_prop.bstrVal)) {
+        VariantClear(&vt_prop);
+        VLOG_WARN("get_str_value, wcscpy_s failed :%s", ovs_strerror(errno));
+        return WBEM_E_FAILED;
+    }
 
     VariantClear(&vt_prop);
-    check_return_value(hres);
 
-    return;
+    return S_OK;
 }
 
 /* This function waits for a WMI job to finish and retrieves the error code
@@ -152,21 +169,29 @@ wait_for_job(IWbemServices* psvc, wchar_t* job_path)
     uint16_t error = 0;
 
     do {
-        check_return_value(psvc->lpVtbl->GetObject(psvc, job_path, 0, NULL,
-                                                   &pcls_obj, NULL));
+        if(!check_return_value(psvc->lpVtbl->GetObject(psvc, job_path, 0, NULL,
+                                                       &pcls_obj, NULL))) {
+            retval = WBEM_E_FAILED;
+            break;
+        }
 
-        job_state = get_uint16_t_value(pcls_obj, L"JobState");
+        retval = get_uint16_t_value(pcls_obj, L"JobState", &job_state);
+        if (FAILED(retval)) {
+            break;
+        }
 
-
-        if (job_state == starting || job_state == running) {
+        if (job_state == job_starting || job_state == job_running) {
             Sleep(200);
-        } else if (job_state == completed) {
+        } else if (job_state == job_completed) {
             break;
         } else {
             /* Error occurred */
-            error = get_uint16_t_value(pcls_obj, L"ErrorCode");
+            retval = get_uint16_t_value(pcls_obj, L"ErrorCode", &error);
+            if (FAILED(retval)) {
+                break;
+            }
             VLOG_WARN("Job failed with error: %d", error);
-            retval = error;
+            retval = WBEM_E_FAILED;;
             break;
         }
 
@@ -285,12 +310,14 @@ connect_set_security(IWbemLocator* ploc, IWbemContext* pcontext,
  * outputted by a query and fails if it could not retrieve the object or there
  * was no object to retrieve */
 boolean
-get_first_element(IEnumWbemClassObject* penumerate, IWbemClassObject** pcls_obj)
+get_first_element(IEnumWbemClassObject* penumerate,
+                  IWbemClassObject** pcls_obj)
 {
-    ULONG retval = 0;
+    unsigned long retval = 0;
 
     if (penumerate == NULL) {
-        VLOG_WARN("Enumeration Class Object is NULL. Cannot get the first object");
+        VLOG_WARN("Enumeration Class Object is NULL. Cannot get the first"
+                  "object");
         return false;
     }
 
@@ -298,25 +325,34 @@ get_first_element(IEnumWbemClassObject* penumerate, IWbemClassObject** pcls_obj)
                                             pcls_obj, &retval);
 
 
-    if (retval == 0) {
+    if (!check_return_value(hres) || retval == 0) {
         return false;
     }
 
     return true;
 }
 
-/* This function transforms a char* into a wchar_t* */
+/* This function is a wrapper that transforms a char* into a wchar_t* */
 boolean
 tranform_wide(char* name, wchar_t* wide_name)
 {
-    ULONG size = strlen(name) + 1;
+    unsigned long size = strlen(name) + 1;
+    long long ret = 0;
 
     if (wide_name == NULL) {
-        VLOG_WARN("Parameter invalid");
+        VLOG_WARN("Provided wide string is NULL");
         return false;
     }
 
-    mbstowcs(wide_name, name, size);
+    ret = mbstowcs(wide_name, name, size);
+
+    if (ret == -1) {
+        VLOG_WARN("Invalid multibyte character is encountered");
+        return false;
+    } else if (ret == size) {
+        VLOG_WARN("Returned wide string not NULL terminated");
+        return false;
+    }
 
     return true;
 }
@@ -349,6 +385,11 @@ delete_wmi_port(char* name)
 
     LONG count[1];
     SAFEARRAY* psa = SafeArrayCreateVector(VT_BSTR, 0, 1);
+    if (psa == NULL) {
+        VLOG_WARN("Could not allocate memory for a SAFEARRAY");
+        retval = false;
+        goto error;
+    }
 
     if (!initialize_wmi(&ploc, &pcontext)) {
         VLOG_WARN("Could not initialize DCOM");
@@ -365,10 +406,8 @@ delete_wmi_port(char* name)
 
 
     /* Get the port with the element name equal to the name input */
-    wchar_t internal_port_query[2048];
-    wcscpy_s(internal_port_query, sizeof(internal_port_query),
-             L"SELECT * from Msvm_EthernetPortAllocationSettingData WHERE "
-             L"ElementName = \"");
+    wchar_t internal_port_query[2048] = L"SELECT * from "
+        L"Msvm_EthernetPortAllocationSettingData  WHERE ElementName = \"" ;
 
     wide_name = malloc((strlen(name) + 1) * sizeof(wchar_t));
     if (wide_name == NULL) {
@@ -416,8 +455,9 @@ delete_wmi_port(char* name)
     pcls_obj = NULL;
 
     /* Get the class object and the parameters it can have */
-    hres = psvc->lpVtbl->GetObject(psvc, L"Msvm_VirtualEthernetSwitchManagementService",
-                                   0, NULL, &pcls_obj, NULL);
+    hres = psvc->lpVtbl->GetObject(psvc,
+        L"Msvm_VirtualEthernetSwitchManagementService", 0, NULL, &pcls_obj,
+        NULL);
 
     if (FAILED(hres)) {
         retval = false;
@@ -515,16 +555,26 @@ delete_wmi_port(char* name)
         goto error;
     }
 
-    UINT retvalue = get_uint_value(pout_params, L"ReturnValue");
-    if (retvalue != 0 && retvalue != wait) {
+    unsigned int retvalue = 0;
+    hres = get_uint_value(pout_params, L"ReturnValue", &retvalue);
+    if (FAILED(hres)) {
         retval = false;
         goto error;
     }
 
-    if (retvalue == wait) {
+    if (retvalue != 0 && retvalue != job_wait) {
+        retval = false;
+        goto error;
+    }
+
+    if (retvalue == job_wait) {
         WCHAR job_path[2048];
-        get_str_value(pout_params, L"Job", job_path,
-                      sizeof(job_path) / sizeof(WCHAR));
+        hres = get_str_value(pout_params, L"Job", job_path,
+                             sizeof(job_path) / sizeof(WCHAR));
+        if (FAILED(hres)) {
+            retval = false;
+            goto error;
+    }
         hres = wait_for_job(psvc, job_path);
         if (FAILED(hres)) {
             retval = false;
@@ -600,8 +650,8 @@ boolean create_wmi_port(char* name) {
     IWbemContext *pcontext = NULL;
     IWbemServices *psvc = NULL;
     IEnumWbemClassObject* penumerate = NULL;
-    IWbemClassObject* defaultAllocationSettingData = NULL;
-    IWbemClassObject* defaultComputerSystem = NULL;
+    IWbemClassObject* default_settings_data = NULL;
+    IWbemClassObject* default_system = NULL;
     IWbemClassObject *pcls_obj = NULL;
     IWbemClassObject* pclass = NULL;
     IWbemClassObject* pinput_params = NULL;
@@ -620,6 +670,12 @@ boolean create_wmi_port(char* name) {
     VariantInit(&vt_prop);
     VariantInit(&switch_setting_path);
 
+    if (psa == NULL) {
+        VLOG_WARN("Could not allocate memory for a SAFEARRAY");
+        retval = false;
+        goto error;
+    }
+
     if (!initialize_wmi(&ploc, &pcontext)) {
         VLOG_WARN("Could not initialize DCOM");
         retval = false;
@@ -634,10 +690,8 @@ boolean create_wmi_port(char* name) {
     }
 
     /* Check if the element already exists on the switch */
-    wchar_t internal_port_query[2048];
-    wcscpy_s(internal_port_query, sizeof(internal_port_query),
-             L"SELECT * FROM Msvm_InternalEthernetPort WHERE "
-             L"ElementName = \"");
+    wchar_t internal_port_query[2048] = L"SELECT * FROM "
+    L"Msvm_InternalEthernetPort WHERE ElementName = \"";
 
     wide_name = malloc((strlen(name) + 1) * sizeof(wchar_t));
     if (wide_name == NULL) {
@@ -844,7 +898,7 @@ boolean create_wmi_port(char* name) {
         goto error;
     }
 
-    if (!get_first_element(penumerate, &defaultAllocationSettingData)) {
+    if (!get_first_element(penumerate, &default_settings_data)) {
         VLOG_WARN("Could not retrieve default allocation port object");
         retval = false;
         goto error;
@@ -869,14 +923,14 @@ boolean create_wmi_port(char* name) {
         goto error;
     }
 
-    if (!get_first_element(penumerate, &defaultComputerSystem)) {
+    if (!get_first_element(penumerate, &default_system)) {
         VLOG_WARN("Could not retrieve default computer system object");
         retval = false;
         goto error;
     }
 
-    hres = defaultComputerSystem->lpVtbl->Get(defaultComputerSystem, L"__PATH",
-                                              0, &vt_prop, 0, 0);
+    hres = default_system->lpVtbl->Get(default_system, L"__PATH",
+                                       0, &vt_prop, 0, 0);
     if (FAILED(hres)) {
         retval = false;
         goto error;
@@ -886,12 +940,18 @@ boolean create_wmi_port(char* name) {
 
     count[0] = 0;
     hres = SafeArrayPutElement(psa, count, vt_prop.bstrVal);
+
+	if (FAILED(hres)) {
+        retval = false;
+        goto error;
+    }
+
     VariantClear(&vt_prop);
     variant_array.vt = VT_ARRAY | VT_BSTR;
     variant_array.parray = psa;
-    hres = defaultAllocationSettingData->lpVtbl->Put(defaultAllocationSettingData,
-                                                     L"HostResource", 0,
-                                                     &variant_array, 0);
+    hres = default_settings_data->lpVtbl->Put(default_settings_data,
+                                              L"HostResource", 0,
+                                              &variant_array, 0);
     if (FAILED(hres)) {
         retval = false;
         goto error;
@@ -925,13 +985,18 @@ boolean create_wmi_port(char* name) {
                                         L"AffectedConfiguration", 0,
                                         &switch_setting_path, 0);
 
+    if (FAILED(hres)) {
+        retval = false;
+        goto error;
+    }
+
     /* Store the port name in the ElementName field of the default allocation
      * data */
     vt_prop.vt = VT_BSTR;
     vt_prop.bstrVal = SysAllocString(wide_name);
-    hres = defaultAllocationSettingData->lpVtbl->Put(defaultAllocationSettingData,
-                                                     L"ElementName", 0,
-                                                     &vt_prop, 0);
+    hres = default_settings_data->lpVtbl->Put(default_settings_data,
+                                              L"ElementName", 0,
+                                              &vt_prop, 0);
     VariantClear(&vt_prop);
     if (FAILED(hres)) {
         retval = false;
@@ -951,7 +1016,7 @@ boolean create_wmi_port(char* name) {
     }
 
     hres = text_object->lpVtbl->GetText(text_object, 0,
-                                        defaultAllocationSettingData,
+                                        default_settings_data,
                                         WMI_OBJ_TEXT_WMI_DTD_2_0,
                                         pcontext,
                                         &text_object_string);
@@ -965,8 +1030,14 @@ boolean create_wmi_port(char* name) {
         retval = false;
         goto error;
     }
-    psa = NULL;
+
     psa = SafeArrayCreateVector(VT_BSTR, 0, 1);
+
+    if (psa == NULL) {
+        VLOG_WARN("Could not allocate memory for a SAFEARRAY");
+        retval = false;
+        goto error;
+    }
 
     count[0] = 0;
     variant_array.parray = psa;
@@ -1022,16 +1093,26 @@ boolean create_wmi_port(char* name) {
         goto error;
     }
 
-    UINT retvalue = get_uint_value(pout_params, L"ReturnValue");
-    if (retvalue != 0 && retvalue != wait) {
+    unsigned int retvalue = 0;
+    hres = get_uint_value(pout_params, L"ReturnValue", &retvalue);
+    if (FAILED(hres)) {
         retval = false;
         goto error;
     }
 
-    if (retvalue == wait) {
+    if (retvalue != 0 && retvalue != job_wait) {
+        retval = false;
+        goto error;
+    }
+
+    if (retvalue == job_wait) {
         WCHAR job_path[2048];
-        get_str_value(pout_params, L"Job", job_path,
-                      sizeof(job_path) / sizeof(WCHAR));
+        hres = get_str_value(pout_params, L"Job", job_path,
+                             sizeof(job_path) / sizeof(WCHAR));
+        if (FAILED(hres)) {
+            retval = false;
+            goto error;
+        }
         hres = wait_for_job(psvc, job_path);
         if (FAILED(hres)) {
             retval = false;
@@ -1084,6 +1165,11 @@ boolean create_wmi_port(char* name) {
     /* Disable the adapter with port name equal with name */
     hres = psvc->lpVtbl->ExecMethod(psvc, vt_prop.bstrVal, L"Disable", 0,
                                     pcontext, NULL, NULL, NULL);
+
+    if (FAILED(hres)) {
+        retval = false;
+        goto error;
+    }
 
     hres = psvc->lpVtbl->GetObject(psvc, L"MSFT_NetAdapter", 0, NULL, &pclass,
                                    NULL);
@@ -1146,13 +1232,13 @@ error:
         penumerate->lpVtbl->Release(penumerate);
         penumerate = NULL;
     }
-    if (defaultAllocationSettingData != NULL) {
-        defaultAllocationSettingData->lpVtbl->Release(defaultAllocationSettingData);
-        defaultAllocationSettingData = NULL;
+    if (default_settings_data != NULL) {
+        default_settings_data->lpVtbl->Release(default_settings_data);
+        default_settings_data = NULL;
     }
-    if (defaultComputerSystem != NULL) {
-        defaultComputerSystem->lpVtbl->Release(defaultComputerSystem);
-        defaultComputerSystem = NULL;
+    if (default_system != NULL) {
+        default_system->lpVtbl->Release(default_system);
+        default_system = NULL;
     }
     if (pcls_obj != NULL) {
         pcls_obj->lpVtbl->Release(pcls_obj);
