@@ -646,6 +646,8 @@ HvDisconnectNic(POVS_SWITCH_CONTEXT switchContext,
 
     if (isInternalPort) {
         OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
+        OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
+        OvsPostEvent(&event);
     }
     NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
@@ -685,12 +687,12 @@ HvDeleteNic(POVS_SWITCH_CONTEXT switchContext,
         goto done;
     }
 
-    vport->nicState = NdisSwitchNicStateUnknown;
-    vport->ovsState = OVS_STATE_PORT_CREATED;
+    vport->nicState = NdisSwitchNicStateDeleted;
+    vport->ovsState = OVS_STATE_PORT_DELETED;
 
     if (OvsIsRealExternalVport(vport)) {
         /* This vport was created in HvCreateNic(). */
-        OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
+        OvsRemoveAndDeleteVport(NULL, switchContext, vport, FALSE, TRUE);
     }
 
     NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
