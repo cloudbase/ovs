@@ -1066,7 +1066,6 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     UINT32 packetLen, mdlLen;
     PNET_BUFFER_LIST newNbl;
     NDIS_STATUS status;
-    PUINT8 tempBuffer[ETH_HEADER_LENGTH];
 
     ASSERT(shiftOffset > ETH_ADDR_LENGTH);
 
@@ -1098,6 +1097,12 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     if (!bufferStart) {
         return NDIS_STATUS_RESOURCES;
     }
+    if (!bufferData) {
+        EthHdr *ethHdr = (EthHdr *)bufferStart;
+        if (ethHdr->Type != htons(0x8100)) {
+            return NDIS_STATUS_SUCCESS;
+        }
+    }
     mdlLen -= NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
     /* Bail out if L2 + shiftLength is not contiguous in the first buffer. */
     if (MIN(packetLen, mdlLen) < sizeof(EthHdr) + shiftLength) {
@@ -1105,8 +1110,7 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
         return NDIS_STATUS_FAILURE;
     }
     bufferStart += NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    RtlCopyMemory(tempBuffer, bufferStart, shiftOffset);
-    RtlCopyMemory(bufferStart + shiftLength, tempBuffer, shiftOffset);
+    RtlMoveMemory(bufferStart + shiftLength, bufferStart, shiftOffset);
     NdisAdvanceNetBufferDataStart(curNb, shiftLength, FALSE, NULL);
 
     if (bufferData) {
@@ -1130,11 +1134,8 @@ OvsPopVlanInPktBuf(OvsForwardingContext *ovsFwdCtx)
      * Declare a dummy vlanTag structure since we need to compute the size
      * of shiftLength. The NDIS one is a unionized structure.
      */
-    NDIS_PACKET_8021Q_INFO vlanTag = {0};
-    UINT32 shiftLength = sizeof(vlanTag.TagHeader);
-    UINT32 shiftOffset = sizeof(DL_EUI48) + sizeof(DL_EUI48);
-
-    return OvsPopFieldInPacketBuf(ovsFwdCtx, shiftOffset, shiftLength, NULL);
+    return OvsPopFieldInPacketBuf(ovsFwdCtx, 2 * ETH_ALEN,
+        ETH_LENGTH_OF_VLAN_HEADER, NULL);
 }
 
 
@@ -1179,20 +1180,57 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
 {
     NDIS_STATUS status;
     PNET_BUFFER curNb = NULL;
-    PMDL curMdl = NULL;
-    PUINT8 bufferStart = NULL;
     OVS_PACKET_HDR_INFO *layers = &ovsFwdCtx->layers;
     EthHdr *ethHdr = NULL;
     MPLSHdr *mplsHdr = NULL;
-    UINT32 mdlLen = 0, curMdlOffset = 0;
-    PNET_BUFFER_LIST newNbl;
+    PNET_BUFFER_LIST newNbl = NULL;
+    UINT16 hdrSize;
+    ULONG mss = 0;
 
-    newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
-                               layers->l3Offset, MPLS_HLEN, TRUE);
-    if (!newNbl) {
-        ovsActionStats.noCopiedNbl++;
-        return NDIS_STATUS_RESOURCES;
+    if (layers->isTcp || layers->isUdp || layers->isSctp) {
+        hdrSize = layers->l7Offset;
     }
+    else {
+        hdrSize = layers->l4Offset;
+    }
+
+    if (layers->isTcp) {
+        mss = OVSGetTcpMSS(ovsFwdCtx->curNbl);
+
+        if (mss) {
+            OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
+            newNbl = OvsTcpSegmentNBL(ovsFwdCtx->switchContext,
+                ovsFwdCtx->curNbl, layers, mss,
+                MPLS_HLEN);
+            if (newNbl == NULL) {
+                ovsActionStats.noCopiedNbl;
+                OVS_LOG_ERROR("Unable to segment NBL");
+                return NDIS_STATUS_FAILURE;
+            }
+            /* Clear out LSO flags after this point */
+            NET_BUFFER_LIST_INFO(newNbl, TcpLargeSendNetBufferListInfo) = 0;
+        }
+    }
+
+    /* If we didn't split the packet above, make a copy now */
+    if (newNbl == NULL) {
+        newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
+            hdrSize, MPLS_HLEN, TRUE /*NBL info*/);
+        if (newNbl == NULL) {
+            ovsActionStats.noCopiedNbl;
+            return NDIS_STATUS_RESOURCES;
+        }
+        NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
+        csumInfo.Value = NET_BUFFER_LIST_INFO(ovsFwdCtx->curNbl,
+            TcpIpChecksumNetBufferListInfo);
+        status = OvsApplySWChecksumOnNB(layers, newNbl, &csumInfo);
+
+        if (status != NDIS_STATUS_SUCCESS) {
+            return NDIS_STATUS_RESOURCES;
+        }
+        NET_BUFFER_LIST_INFO(newNbl, TcpIpChecksumNetBufferListInfo) = 0;
+    }
+
     OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                 L"Complete after partial copy.");
 
@@ -1201,41 +1239,32 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
                                   NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
                                   NULL, &ovsFwdCtx->layers, FALSE);
     if (status != NDIS_STATUS_SUCCESS) {
-        OvsCompleteNBLForwardingCtx(ovsFwdCtx,
-                                    L"OVS-Dropped due to resources");
         return NDIS_STATUS_RESOURCES;
     }
 
-    curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl);
-    ASSERT(curNb->Next == NULL);
+    for (curNb = NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl); curNb != NULL;
+         curNb = curNb->Next) {
+        status = NdisRetreatNetBufferDataStart(curNb, MPLS_HLEN, 0, NULL);
+        if (status != NDIS_STATUS_SUCCESS) {
+            goto ret_error;
+        }
+        ethHdr = (EthHdr *)NdisGetDataBuffer(curNb, sizeof(EthHdr) + MPLS_HLEN,
+                                             NULL, 1, 0);
+        if (!ethHdr) {
+            status = NDIS_STATUS_RESOURCES;
+            goto ret_error;
+        }
+        RtlMoveMemory(ethHdr, (UINT8*)ethHdr + MPLS_HLEN, sizeof(*ethHdr));
+        ethHdr->Type = mpls->mpls_ethertype;
 
-    status = NdisRetreatNetBufferDataStart(curNb, MPLS_HLEN, 0, NULL);
-    if (status != NDIS_STATUS_SUCCESS) {
-        return status;
+        mplsHdr = (MPLSHdr *)(ethHdr + 1);
+        mplsHdr->lse = mpls->mpls_lse;
     }
-
-    curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    NdisQueryMdl(curMdl, &bufferStart, &mdlLen, LowPagePriority);
-    if (!curMdl) {
-        ovsActionStats.noResource++;
-        return NDIS_STATUS_RESOURCES;
-    }
-
-    curMdlOffset = NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
-    mdlLen -= curMdlOffset;
-    ASSERT(mdlLen >= MPLS_HLEN);
-
-    ethHdr = (EthHdr *)(bufferStart + curMdlOffset);
-    RtlMoveMemory(ethHdr, (UINT8*)ethHdr + MPLS_HLEN, sizeof(*ethHdr));
-    ethHdr->Type = mpls->mpls_ethertype;
-
-    mplsHdr = (MPLSHdr *)(ethHdr + 1);
-    mplsHdr->lse = mpls->mpls_lse;
-
     layers->l3Offset += MPLS_HLEN;
     layers->l4Offset += MPLS_HLEN;
 
-    return NDIS_STATUS_SUCCESS;
+ret_error:
+    return status;
 }
 
 /*
@@ -1322,11 +1351,10 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
     mdlLen -= curMdlOffset;
     ASSERT((INT)mdlLen >= 0);
 
-    if (layers->isTcp || layers->isUdp) {
-        hdrSize = layers->l4Offset +
-                  layers->isTcp ? sizeof (*tcpHdr) : sizeof (*udpHdr);
+    if (layers->isTcp || layers->isUdp || layers->isSctp) {
+        hdrSize = layers->l7Offset;
     } else {
-        hdrSize = layers->l3Offset + sizeof (*ipHdr);
+        hdrSize = layers->l4Offset;
     }
 
     /* Count of number of bytes of valid data there are in the first MDL. */
@@ -1568,7 +1596,6 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
 {
     NTSTATUS status = NDIS_STATUS_SUCCESS;
     PNL_ATTR userdataAttr;
-    PNL_ATTR queueAttr;
     POVS_PACKET_QUEUE_ELEM elem;
     POVS_PACKET_HDR_INFO layers = &ovsFwdCtx->layers;
     BOOLEAN isRecv = FALSE;
@@ -1583,7 +1610,6 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
         }
     }
 
-    queueAttr = NlAttrFindNested(attr, OVS_USERSPACE_ATTR_PID);
     userdataAttr = NlAttrFindNested(attr, OVS_USERSPACE_ATTR_USERDATA);
 
     elem = OvsCreateQueueNlPacket(NlAttrData(userdataAttr),
@@ -2059,6 +2085,14 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
                          srcPortNo, 0,
                          NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(curNbl),
                          completionList, layers, TRUE);
+    status = OvsExtractFlow(ovsFwdCtx.curNbl, ovsFwdCtx.srcVportNo, key,
+                            &ovsFwdCtx.layers, NULL);
+    if (status != NDIS_STATUS_SUCCESS) {
+        OvsCompleteNBLForwardingCtx(&ovsFwdCtx,
+            L"OVS-Dropped due to extract flow failure");
+        ovsActionStats.failedFlowMiss++;
+        return NDIS_STATUS_FAILURE;
+    }
 
     flow = OvsLookupFlow(&ovsFwdCtx.switchContext->datapath, key, &hash, FALSE);
     if (flow) {
