@@ -2352,7 +2352,8 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
             OvsParseIcmpV6(packet, &flow->ipv6Key, &flow->icmp6Key, layers);
             flow->l2.keyLen += (OVS_ICMPV6_KEY_SIZE - OVS_IPV6_KEY_SIZE);
         }
-    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP)) {
+    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP) ||
+               flow->l2.dlType == htons(ETH_TYPE_RARP)) {
         EtherArp arpStorage;
         const EtherArp *arp;
         ArpKey *arpKey = &flow->arpKey;

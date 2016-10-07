@@ -746,12 +746,7 @@ OvsTunnelPortRx(OvsForwardingContext *ovsFwdCtx)
     POVS_VPORT_ENTRY tunnelRxVport = ovsFwdCtx->tunnelRxNic;
     PCWSTR dropReason = L"OVS-dropped due to new decap packet";
 
-    if (OvsValidateIPChecksum(ovsFwdCtx->curNbl, &ovsFwdCtx->layers)
-            != NDIS_STATUS_SUCCESS) {
-        ovsActionStats.failedChecksum++;
-        OVS_LOG_INFO("Packet dropped due to IP checksum failure.");
-        goto dropNbl;
-    }
+    /* XXX Validate IP checksum here */
 
     /*
      * Decap port functions should return a new NBL if it was copied, and
