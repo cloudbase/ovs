@@ -1247,6 +1247,9 @@ ovn-nbctl ls-add lsw0
 ovn-sbctl chassis-add hv0 geneve 127.0.0.1
 for i in 1 2 3; do
     ovn-nbctl lsp-add lsw0 lp$i
+done
+ovn-nbctl --wait=sb sync
+for i in 1 2 3; do
     ovn-sbctl lsp-bind lp$i hv0
     if test $i = 1; then
         ovn-nbctl lsp-set-addresses lp$i "f0:00:00:00:00:0$i 192.168.0.$i" unknown
@@ -2614,13 +2617,13 @@ sip=`ip_to_hex 192 168 0 13`
 tip=`ip_to_hex 192 168 0 23`
 test_ip 13 f00000000113 f00000000023 $sip $tip
 
-# ipv6 packet should be received by lp[123]3 with mac f0000000{i}{i}3
-# and ip6.dst as fe80::ea2a:eaff:fe28:0{i}{i}3.
+# ipv6 packet should be received by lp[123]3 with mac f00000000${i}${i}3
+# and ip6.dst as fe80::ea2a:eaff:fe28:0${i}${i}3.
 # lp11 can send ipv6 traffic as there is no port security
 sip=ee800000000000000000000000000000
 for i in 1 2 3; do
-    tip=fe80000000000000ea2aeafffe2800{i}3
-    test_ipv6 11 f00000000011 f000000000{i}${i}3 $sip $tip {i}3
+    tip=fe80000000000000ea2aeafffe2800${i}3
+    test_ipv6 11 f00000000011 f00000000${i}${i}3 $sip $tip ${i}3
 done
 
 
@@ -2633,8 +2636,8 @@ sip=ee800000000000000000000000000000
 tip=fe80000000000000ea2aeafffe280023
 test_ipv6 11 f00000000011 f00000000333 $sip $tip
 
-# ipv6 packet should be allowed for lp[123]3 with mac f0000000{i}{i}3
-# and ip6.src fe80::ea2a:eaff:fe28:0{i}{i}3 and ip6.src ::.
+# ipv6 packet should be allowed for lp[123]3 with mac f0000000${i}${i}3
+# and ip6.src fe80::ea2a:eaff:fe28:0${i}${i}3 and ip6.src ::.
 # and should be dropped for any other ip6.src
 # lp21 can receive ipv6 traffic as there is no port security
 
@@ -4676,23 +4679,17 @@ ovn-nbctl lsp-add alice rp-alice -- set Logical_Switch_Port rp-alice type=router
 # Create logical port foo1 in foo
 ovn-nbctl lsp-add foo foo1 \
 -- lsp-set-addresses foo1 "dynamic"
-AT_CHECK([ovn-nbctl get Logical-Switch-Port foo1 dynamic_addresses], [0],
-     ["0a:00:00:00:00:01 192.168.1.2"
-])
+AT_CHECK([ovn-nbctl --timeout=10 wait-until Logical-Switch-Port foo1 dynamic_addresses='"0a:00:00:00:00:01 192.168.1.2"'], [0])
 
 # Create logical port alice1 in alice
 ovn-nbctl lsp-add alice alice1 \
 -- lsp-set-addresses alice1 "dynamic"
-AT_CHECK([ovn-nbctl get Logical-Switch-Port alice1 dynamic_addresses], [0],
-     ["0a:00:00:00:00:02 192.168.2.2"
-])
+AT_CHECK([ovn-nbctl --timeout=10 wait-until Logical-Switch-Port alice1 dynamic_addresses='"0a:00:00:00:00:02 192.168.2.2"'])
 
 # Create logical port foo2 in foo
 ovn-nbctl lsp-add foo foo2 \
 -- lsp-set-addresses foo2 "dynamic"
-AT_CHECK([ovn-nbctl get Logical-Switch-Port foo2 dynamic_addresses], [0],
-     ["0a:00:00:00:00:03 192.168.1.3"
-])
+AT_CHECK([ovn-nbctl --timeout=10 wait-until Logical-Switch-Port foo2 dynamic_addresses='"0a:00:00:00:00:03 192.168.1.3"'])
 
 # Create a hypervisor and create OVS ports corresponding to logical ports.
 net_add n1
@@ -5060,15 +5057,14 @@ dp_uuid=`ovn-sbctl find datapath | grep uuid | cut -f2 -d ":" | cut -f2 -d " "`
 ovn-sbctl create MAC_Binding ip=10.0.0.1 datapath=$dp_uuid logical_port=lp0 mac="mac1"
 ovn-sbctl create MAC_Binding ip=10.0.0.1 datapath=$dp_uuid logical_port=lp1 mac="mac2"
 ovn-sbctl find MAC_Binding
-#Delete port lp0
+# Delete port lp0 and check that its MAC_Binding is deleted.
 ovn-nbctl lsp-del lp0
 ovn-sbctl find MAC_Binding
-AT_CHECK([ovn-sbctl find MAC_Binding logical_port=lp0], [0], [])
-#Delete ls0. This will verify that the mac_bindings are cleaned up when a
-#datapath is deleted without explicitly removing the the logical ports
+OVS_WAIT_UNTIL([test `ovn-sbctl find MAC_Binding logical_port=lp0 | wc -l` = 0])
+# Delete logical switch ls0 and check that its MAC_Binding is deleted.
 ovn-nbctl ls-del ls0
 ovn-sbctl find MAC_Binding
-AT_CHECK([ovn-sbctl find MAC_Binding], [0], [])
+OVS_WAIT_UNTIL([test `ovn-sbctl find MAC_Binding | wc -l` = 0])
 
 OVN_CLEANUP([hv1])
 
