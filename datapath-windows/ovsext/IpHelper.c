@@ -101,6 +101,7 @@ static OVS_IP_HELPER_THREAD_CONTEXT ovsIpHelperThreadContext;
 static POVS_IPFORWARD_ENTRY OvsLookupIPForwardEntry(PIP_ADDRESS_PREFIX prefix);
 static VOID OvsRemoveIPForwardEntry(POVS_IPFORWARD_ENTRY ipf);
 static VOID OvsRemoveAllFwdEntriesWithSrc(UINT32 ipAddr);
+static VOID OvsRemoveAllFwdEntriesWithPortNo(UINT32 portNo);
 static VOID OvsCleanupIpHelperRequestList(VOID);
 static VOID OvsCleanupFwdTable(VOID);
 static VOID OvsAddToSortedNeighList(POVS_IPNEIGH_ENTRY ipn);
@@ -351,11 +352,13 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
             PMIB_IPFORWARD_ROW2 route,
             SOCKADDR_INET *sourceAddress,
             POVS_IPHELPER_INSTANCE *instance,
-            POVS_VPORT_ENTRY* vport)
+            POVS_VPORT_ENTRY* vport,
+            UINT32 srcIp)
 {
     NTSTATUS status = STATUS_NETWORK_UNREACHABLE;
     NTSTATUS result = STATUS_SUCCESS;
     PLIST_ENTRY head, link, next;
+    ULONG minMetric = MAXULONG;
 
     if (destinationAddress == NULL || route == NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -364,7 +367,6 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
     ExAcquireResourceExclusiveLite(&ovsInstanceListLock, TRUE);
     head = &(ovsInstanceList);
     LIST_FORALL_SAFE(head, link, next) {
-        ULONG minMetric = MAXULONG;
         SOCKADDR_INET crtSrcAddr = { 0 };
         MIB_IPFORWARD_ROW2 crtRoute = { 0 };
         POVS_IPHELPER_INSTANCE crtInstance = NULL;
@@ -382,7 +384,8 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
             continue;
         }
 
-        if (minMetric > crtRoute.Metric) {
+        if (minMetric > crtRoute.Metric &&
+            (!srcIp || srcIp == crtSrcAddr.Ipv4.sin_addr.S_un.S_addr)) {
             status = STATUS_SUCCESS;
             size_t len = 0;
             minMetric = crtRoute.Metric;
@@ -781,56 +784,28 @@ OvsChangeCallbackIpRoute(PVOID context,
     case MibParameterNotification:
     case MibDeleteInstance:
     {
-        PLIST_ENTRY head, link, next;
-        BOOLEAN found = FALSE;
-
         ASSERT(ipRoute);
         ipAddr = ipRoute->DestinationPrefix.Prefix.Ipv4.sin_addr.s_addr;
         nextHop = ipRoute->NextHop.Ipv4.sin_addr.s_addr;
 
-        ExAcquireResourceExclusiveLite(&ovsInstanceListLock, TRUE);
-        head = &(ovsInstanceList);
-        LIST_FORALL_SAFE(head, link, next) {
-            POVS_IPHELPER_INSTANCE instance = NULL;
+        POVS_IPFORWARD_ENTRY ipf;
+        LOCK_STATE_EX lockState;
 
-            instance = CONTAINING_RECORD(link, OVS_IPHELPER_INSTANCE, link);
-
-            ExAcquireResourceExclusiveLite(&instance->lock, TRUE);
-            if (instance->isIpConfigured &&
-                OvsCheckInstanceRow(&instance->internalRow,
-                                    &ipRoute->InterfaceLuid,
-                                    ipRoute->InterfaceIndex)
-                ) {
-
-                found = TRUE;
-
-                ExReleaseResourceLite(&instance->lock);
-                break;
-            }
-            ExReleaseResourceLite(&instance->lock);
+        NdisAcquireRWLockWrite(ovsTableLock, &lockState, 0);
+        ipf = OvsLookupIPForwardEntry(&ipRoute->DestinationPrefix);
+        if (ipf != NULL) {
+            OvsRemoveIPForwardEntry(ipf);
         }
-        ExReleaseResourceLite(&ovsInstanceListLock);
+        NdisReleaseRWLock(ovsTableLock, &lockState);
 
-        if (found) {
-            POVS_IPFORWARD_ENTRY ipf;
-            LOCK_STATE_EX lockState;
-
-            NdisAcquireRWLockWrite(ovsTableLock, &lockState, 0);
-            ipf = OvsLookupIPForwardEntry(&ipRoute->DestinationPrefix);
-            if (ipf != NULL) {
-                OvsRemoveIPForwardEntry(ipf);
-            }
-            NdisReleaseRWLock(ovsTableLock, &lockState);
-
-            OVS_LOG_INFO("IPRoute: To %d.%d.%d.%d/%d through %d.%d.%d.%d %s.",
-                         ipAddr & 0xff, (ipAddr >> 8) & 0xff,
-                         (ipAddr >> 16) & 0xff, (ipAddr >> 24) & 0xff,
-                         ipRoute->DestinationPrefix.PrefixLength,
-                         nextHop & 0xff, (nextHop >> 8) & 0xff,
-                         (nextHop >> 16) & 0xff, (nextHop >> 24) & 0xff,
-                         notificationType == MibDeleteInstance ? "deleted" :
-                         "modified");
-        }
+        OVS_LOG_INFO("IPRoute: To %d.%d.%d.%d/%d through %d.%d.%d.%d %s.",
+                     ipAddr & 0xff, (ipAddr >> 8) & 0xff,
+                     (ipAddr >> 16) & 0xff, (ipAddr >> 24) & 0xff,
+                     ipRoute->DestinationPrefix.PrefixLength,
+                     nextHop & 0xff, (nextHop >> 8) & 0xff,
+                     (nextHop >> 16) & 0xff, (nextHop >> 24) & 0xff,
+                     notificationType == MibDeleteInstance ? "deleted" :
+                     "modified");
         break;
     }
 
@@ -1055,7 +1030,7 @@ OvsLookupIPForwardEntry(PIP_ADDRESS_PREFIX prefix)
 
 
 static POVS_FWD_ENTRY
-OvsLookupIPFwdEntry(UINT32 dstIp)
+OvsLookupIPFwdEntry(UINT32 srcIp, UINT32 dstIp)
 {
     PLIST_ENTRY link;
     UINT32 hash = OvsJhashWords(&dstIp, 1, OVS_HASH_BASIS);
@@ -1064,7 +1039,8 @@ OvsLookupIPFwdEntry(UINT32 dstIp)
         POVS_FWD_ENTRY entry;
 
         entry = CONTAINING_RECORD(link, OVS_FWD_ENTRY, link);
-        if (entry->info.dstIpAddr == dstIp) {
+        if (entry->info.dstIpAddr == dstIp &&
+            (!srcIp || entry->info.srcIpAddr == srcIp)) {
             return entry;
         }
     }
@@ -1073,7 +1049,8 @@ OvsLookupIPFwdEntry(UINT32 dstIp)
 
 
 NTSTATUS
-OvsLookupIPFwdInfo(UINT32 dstIp,
+OvsLookupIPFwdInfo(UINT32 srcIp,
+                   UINT32 dstIp,
                    POVS_FWD_INFO info)
 {
     POVS_FWD_ENTRY entry;
@@ -1081,7 +1058,7 @@ OvsLookupIPFwdInfo(UINT32 dstIp,
     NTSTATUS status = STATUS_NOT_FOUND;
 
     NdisAcquireRWLockRead(ovsTableLock, &lockState, 0);
-    entry = OvsLookupIPFwdEntry(dstIp);
+    entry = OvsLookupIPFwdEntry(srcIp, dstIp);
     if (entry) {
         RtlCopyMemory(info->value, entry->info.value,
                       sizeof entry->info.value);
@@ -1307,6 +1284,25 @@ OvsRemoveAllFwdEntriesWithSrc(UINT32 ipAddr)
 
             fwdEntry = CONTAINING_RECORD(link, OVS_FWD_ENTRY, link);
             if (fwdEntry->info.srcIpAddr == ipAddr) {
+                OvsRemoveFwdEntry(fwdEntry);
+            }
+        }
+    }
+}
+
+
+static VOID
+OvsRemoveAllFwdEntriesWithPortNo(UINT32 portNo)
+{
+    UINT32 i;
+    PLIST_ENTRY link, next;
+
+    for (i = 0; i < OVS_FWD_HASH_TABLE_SIZE; i++) {
+        LIST_FORALL_SAFE(&ovsFwdHashTable[i], link, next) {
+            POVS_FWD_ENTRY fwdEntry;
+
+            fwdEntry = CONTAINING_RECORD(link, OVS_FWD_ENTRY, link);
+            if (fwdEntry->info.srcPortNo == portNo) {
                 OvsRemoveFwdEntry(fwdEntry);
             }
         }
@@ -1637,7 +1633,8 @@ OvsHandleFwdRequest(POVS_IP_HELPER_REQUEST request)
     BOOLEAN  newFWD = FALSE;
     POVS_IPHELPER_INSTANCE instance = NULL;
 
-    status = OvsLookupIPFwdInfo(request->fwdReq.tunnelKey.dst,
+    status = OvsLookupIPFwdInfo(request->fwdReq.tunnelKey.src,
+                                request->fwdReq.tunnelKey.dst,
                                 &fwdInfo);
     if (status == STATUS_SUCCESS) {
         goto fwd_handle_nbl;
@@ -1650,7 +1647,16 @@ OvsHandleFwdRequest(POVS_IP_HELPER_REQUEST request)
     dst.si_family = AF_INET;
     dst.Ipv4.sin_addr.s_addr = request->fwdReq.tunnelKey.dst;
 
-    status = OvsGetRoute(&dst, &ipRoute, &src, &instance, &fwdInfo.vport);
+    status = OvsGetRoute(&dst, &ipRoute, &src, &instance,
+                         &fwdInfo.vport, request->fwdReq.tunnelKey.src);
+    if (request->fwdReq.tunnelKey.src &&
+        request->fwdReq.tunnelKey.src != src.Ipv4.sin_addr.s_addr) {
+        UINT32 ipAddr = dst.Ipv4.sin_addr.s_addr;
+        OVS_LOG_INFO("Fail to get route to %d.%d.%d.%d, status: %x",
+            ipAddr & 0xff, (ipAddr >> 8) & 0xff,
+            (ipAddr >> 16) & 0xff, (ipAddr >> 24) & 0xff, status);
+        goto fwd_handle_nbl;
+    }
     if (status != STATUS_SUCCESS || instance == NULL) {
         UINT32 ipAddr = dst.Ipv4.sin_addr.s_addr;
         OVS_LOG_INFO("Fail to get route to %d.%d.%d.%d, status: %x",
@@ -1706,6 +1712,13 @@ fwd_request_done:
         PLIST_ENTRY link;
         link = ipf->fwdList.Flink;
         fwdEntry = CONTAINING_RECORD(link, OVS_FWD_ENTRY, ipfLink);
+        if (fwdEntry->info.srcIpAddr != srcAddr) {
+            OvsRemoveFwdEntry(fwdEntry);
+            NdisReleaseRWLock(ovsTableLock, &lockState);
+            ExReleaseResourceLite(&instance->lock);
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto fwd_handle_nbl;
+        }
         srcAddr = fwdEntry->info.srcIpAddr;
     }
 
@@ -1910,7 +1923,7 @@ OvsStartIpHelper(PVOID data)
                         IsEqualGUID(&instance->netCfgId, &netCfgInstanceId)) {
 
                         NdisAcquireRWLockWrite(ovsTableLock, &lockState, 0);
-                        OvsRemoveAllFwdEntriesWithSrc(instance->ipAddress);
+                        OvsRemoveAllFwdEntriesWithPortNo(instance->portNo);
                         NdisReleaseRWLock(ovsTableLock, &lockState);
 
                         RemoveEntryList(&instance->link);

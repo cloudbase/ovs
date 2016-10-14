@@ -325,7 +325,7 @@ OvsEncapVxlan(POVS_VPORT_ENTRY vport,
     NTSTATUS status;
     OVS_FWD_INFO fwdInfo;
 
-    status = OvsLookupIPFwdInfo(tunKey->dst, &fwdInfo);
+    status = OvsLookupIPFwdInfo(tunKey->src, tunKey->dst, &fwdInfo);
     if (status != STATUS_SUCCESS) {
         OvsFwdIPHelperRequest(NULL, 0, tunKey, NULL, NULL, NULL);
         /*
