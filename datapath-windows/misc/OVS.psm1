@@ -26,7 +26,7 @@ function Set-VMNetworkAdapterOVSPort
     param
     (
         [parameter(Mandatory=$true, ValueFromPipeline=$true)]
-        [Microsoft.HyperV.PowerShell.VMNetworkAdapter]$VMNetworkAdapter,
+        $VMNetworkAdapter,
 
         [parameter(Mandatory=$true)]
         [ValidateLength(1, 48)]
