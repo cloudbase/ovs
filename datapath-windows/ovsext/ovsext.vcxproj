@@ -172,16 +172,16 @@
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|x64'">true</MultiProcessorCompilation>
     </ClCompile>
     <Inf>
-      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|x64'">2.5.0.1</TimeStamp>
+      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|x64'">2.5.1.0</TimeStamp>
     </Inf>
     <Inf>
-      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|x64'">2.5.0.1</TimeStamp>
+      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|x64'">2.5.1.0</TimeStamp>
     </Inf>
     <Inf>
-      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8 Release|x64'">2.5.0.1</TimeStamp>
+      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8 Release|x64'">2.5.1.0</TimeStamp>
     </Inf>
     <Inf>
-      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|x64'">2.5.0.1</TimeStamp>
+      <TimeStamp Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|x64'">2.5.1.0</TimeStamp>
     </Inf>
   </ItemDefinitionGroup>
   <ItemGroup>
