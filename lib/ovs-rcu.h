@@ -56,7 +56,8 @@
  *
  *         Brackets a time period during which the current thread is quiescent.
  *
- * A newly created thread is initially active, not quiescent.
+ * A newly created thread is initially active, not quiescent. When a process
+ * becomes multithreaded, the main thread becomes active, not quiescent.
  *
  * When a quiescient state has occurred in every thread, we say that a "grace
  * period" has occurred.  Following a grace period, all of the callbacks
@@ -215,6 +216,7 @@ void ovsrcu_postpone__(void (*function)(void *aux), void *aux);
 void ovsrcu_quiesce_start(void);
 void ovsrcu_quiesce_end(void);
 void ovsrcu_quiesce(void);
+int ovsrcu_try_quiesce(void);
 bool ovsrcu_is_quiescent(void);
 
 /* Synchronization.  Waits for all non-quiescent threads to quiesce at least

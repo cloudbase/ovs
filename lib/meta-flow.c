@@ -384,21 +384,21 @@ mf_are_prereqs_ok(const struct mf_field *mf, const struct flow *flow)
         return is_ip_any(flow) && flow->nw_proto == IPPROTO_SCTP
             && !(flow->nw_frag & FLOW_NW_FRAG_LATER);
     case MFP_ICMPV4:
-        return is_icmpv4(flow);
+        return is_icmpv4(flow, NULL);
     case MFP_ICMPV6:
-        return is_icmpv6(flow);
+        return is_icmpv6(flow, NULL);
 
     case MFP_ND:
-        return (is_icmpv6(flow)
+        return (is_icmpv6(flow, NULL)
                 && flow->tp_dst == htons(0)
                 && (flow->tp_src == htons(ND_NEIGHBOR_SOLICIT) ||
                     flow->tp_src == htons(ND_NEIGHBOR_ADVERT)));
     case MFP_ND_SOLICIT:
-        return (is_icmpv6(flow)
+        return (is_icmpv6(flow, NULL)
                 && flow->tp_dst == htons(0)
                 && (flow->tp_src == htons(ND_NEIGHBOR_SOLICIT)));
     case MFP_ND_ADVERT:
-        return (is_icmpv6(flow)
+        return (is_icmpv6(flow, NULL)
                 && flow->tp_dst == htons(0)
                 && (flow->tp_src == htons(ND_NEIGHBOR_ADVERT)));
     }
@@ -412,7 +412,15 @@ mf_are_prereqs_ok(const struct mf_field *mf, const struct flow *flow)
 void
 mf_mask_field_and_prereqs(const struct mf_field *mf, struct flow_wildcards *wc)
 {
-    mf_set_flow_value(mf, &exact_match_mask, &wc->masks);
+    mf_mask_field_and_prereqs__(mf, &exact_match_mask, wc);
+}
+
+void
+mf_mask_field_and_prereqs__(const struct mf_field *mf,
+                            const union mf_value *mask,
+                            struct flow_wildcards *wc)
+{
+    mf_set_flow_value_masked(mf, &exact_match_mask, mask, &wc->masks);
 
     switch (mf->prereqs) {
     case MFP_ND:

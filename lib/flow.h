@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
+ * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,7 +109,6 @@ struct flow {
     ovs_u128 ct_label;          /* Connection label. */
     uint32_t conj_id;           /* Conjunction ID. */
     ofp_port_t actset_output;   /* Output port in action set. */
-    uint8_t pad2[2];            /* Pad to 64 bits. */
 
     /* L2, Order the same as in the Ethernet header! (64-bit aligned) */
     struct eth_addr dl_dst;     /* Ethernet destination address. */
@@ -999,46 +998,84 @@ pkt_metadata_from_flow(struct pkt_metadata *md, const struct flow *flow)
     md->ct_label = flow->ct_label;
 }
 
+/* Often, during translation we need to read a value from a flow('FLOW') and
+ * unwildcard the corresponding bits in the wildcards('WC').  This macro makes
+ * it easier to do that. */
+
+#define FLOW_WC_GET_AND_MASK_WC(FLOW, WC, FIELD) \
+    (((WC) ? WC_MASK_FIELD(WC, FIELD) : NULL), ((FLOW)->FIELD))
+
 static inline bool is_ip_any(const struct flow *flow)
 {
     return dl_type_is_ip_any(flow->dl_type);
 }
 
-static inline bool is_icmpv4(const struct flow *flow)
+static inline bool is_icmpv4(const struct flow *flow,
+                             struct flow_wildcards *wc)
 {
-    return (flow->dl_type == htons(ETH_TYPE_IP)
-            && flow->nw_proto == IPPROTO_ICMP);
+    if (flow->dl_type == htons(ETH_TYPE_IP)) {
+        if (wc) {
+            memset(&wc->masks.nw_proto, 0xff, sizeof wc->masks.nw_proto);
+        }
+        return flow->nw_proto == IPPROTO_ICMP;
+    }
+    return false;
 }
 
-static inline bool is_icmpv6(const struct flow *flow)
+static inline bool is_icmpv6(const struct flow *flow,
+                             struct flow_wildcards *wc)
 {
-    return (flow->dl_type == htons(ETH_TYPE_IPV6)
-            && flow->nw_proto == IPPROTO_ICMPV6);
+    if (flow->dl_type == htons(ETH_TYPE_IPV6)) {
+        if (wc) {
+            memset(&wc->masks.nw_proto, 0xff, sizeof wc->masks.nw_proto);
+        }
+        return flow->nw_proto == IPPROTO_ICMPV6;
+    }
+    return false;
 }
 
-static inline bool is_igmp(const struct flow *flow)
+static inline bool is_igmp(const struct flow *flow, struct flow_wildcards *wc)
 {
-    return (flow->dl_type == htons(ETH_TYPE_IP)
-            && flow->nw_proto == IPPROTO_IGMP);
+    if (flow->dl_type == htons(ETH_TYPE_IP)) {
+        if (wc) {
+            memset(&wc->masks.nw_proto, 0xff, sizeof wc->masks.nw_proto);
+        }
+        return flow->nw_proto == IPPROTO_IGMP;
+    }
+    return false;
 }
 
-static inline bool is_mld(const struct flow *flow)
+static inline bool is_mld(const struct flow *flow,
+                          struct flow_wildcards *wc)
 {
-    return is_icmpv6(flow)
-           && (flow->tp_src == htons(MLD_QUERY)
-               || flow->tp_src == htons(MLD_REPORT)
-               || flow->tp_src == htons(MLD_DONE)
-               || flow->tp_src == htons(MLD2_REPORT));
+    if (is_icmpv6(flow, wc)) {
+        if (wc) {
+            memset(&wc->masks.tp_src, 0xff, sizeof wc->masks.tp_src);
+        }
+        return (flow->tp_src == htons(MLD_QUERY)
+                || flow->tp_src == htons(MLD_REPORT)
+                || flow->tp_src == htons(MLD_DONE)
+                || flow->tp_src == htons(MLD2_REPORT));
+    }
+    return false;
 }
 
-static inline bool is_mld_query(const struct flow *flow)
+static inline bool is_mld_query(const struct flow *flow,
+                                struct flow_wildcards *wc)
 {
-    return is_icmpv6(flow) && flow->tp_src == htons(MLD_QUERY);
+    if (is_icmpv6(flow, wc)) {
+        if (wc) {
+            memset(&wc->masks.tp_src, 0xff, sizeof wc->masks.tp_src);
+        }
+        return flow->tp_src == htons(MLD_QUERY);
+    }
+    return false;
 }
 
-static inline bool is_mld_report(const struct flow *flow)
+static inline bool is_mld_report(const struct flow *flow,
+                                 struct flow_wildcards *wc)
 {
-    return is_mld(flow) && !is_mld_query(flow);
+    return is_mld(flow, wc) && !is_mld_query(flow, wc);
 }
 
 static inline bool is_stp(const struct flow *flow)

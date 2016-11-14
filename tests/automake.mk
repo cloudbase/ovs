@@ -60,6 +60,7 @@ TESTSUITE_AT = \
 	tests/bridge.at \
 	tests/vlan-splinters.at \
 	tests/ofproto.at \
+	tests/netdev-type.at \
 	tests/ovsdb.at \
 	tests/ovsdb-log.at \
 	tests/ovsdb-types.at \
@@ -308,6 +309,7 @@ tests_ovstest_SOURCES = \
 	tests/test-ovn.c \
 	tests/test-packets.c \
 	tests/test-random.c \
+	tests/test-rcu.c \
 	tests/test-reconnect.c \
 	tests/test-rstp.c \
 	tests/test-sflow.c \

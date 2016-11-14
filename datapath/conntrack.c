@@ -415,6 +415,9 @@ static int __ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 	 */
 	if (!skb_nfct_cached(net, skb, info)) {
 		struct nf_conn *tmpl = info->ct;
+		enum ip_conntrack_info ctinfo;
+		struct nf_conn *ct;
+		int err;
 
 		/* Associate skb with specified zone. */
 		if (tmpl) {
@@ -425,13 +428,41 @@ static int __ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 			skb->nfctinfo = IP_CT_NEW;
 		}
 
-		if (nf_conntrack_in(net, info->family, NF_INET_FORWARD,
-				    skb) != NF_ACCEPT)
+		/* Repeat if requested, see nf_iterate(). */
+		do {
+			err = nf_conntrack_in(net, info->family,
+					      NF_INET_FORWARD, skb);
+		} while (err == NF_REPEAT);
+
+		if (err != NF_ACCEPT)
 			return -ENOENT;
 
-		if (ovs_ct_helper(skb, info->family) != NF_ACCEPT) {
-			WARN_ONCE(1, "helper rejected packet");
-			return -EINVAL;
+		ct = nf_ct_get(skb, &ctinfo);
+		if (ct) {
+			/* Userspace may decide to perform a ct lookup without
+			 * a helper specified followed by a (recirculate and)
+			 * commit with one.  Therefore, for unconfirmed
+			 * connections which we will commit, we need to attach
+			 * the helper here.
+			 */
+			if (!nf_ct_is_confirmed(ct) && info->commit &&
+			    info->helper && !nfct_help(ct)) {
+				int err = __nf_ct_try_assign_helper(ct,
+								    info->ct,
+								    GFP_ATOMIC);
+				if (err)
+					return err;
+			}
+
+			/* Call the helper only if:
+			 * - The connection is confirmed, or
+			 * - When committing an unconfirmed connection.
+			 */
+			if ((nf_ct_is_confirmed(ct) || info->commit) &&
+			    ovs_ct_helper(skb, info->family) != NF_ACCEPT) {
+				WARN_ONCE(1, "helper rejected packet");
+				return -EINVAL;
+			}
 		}
 	}
 
@@ -464,6 +495,17 @@ static int ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 	return 0;
 }
 
+static bool labels_nonzero(const struct ovs_key_ct_labels *labels)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(*labels); i++)
+		if (labels->ct_labels[i])
+			return true;
+
+	return false;
+}
+
 /* Lookup connection and confirm if unconfirmed. */
 static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 			 const struct ovs_conntrack_info *info,
@@ -484,21 +526,31 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 	err = __ovs_ct_lookup(net, key, info, skb);
 	if (err)
 		return err;
+
+	/* Apply changes before confirming the connection so that the initial
+	 * conntrack NEW netlink event carries the values given in the CT
+	 * action.
+	 */
+
+	if (info->mark.mask) {
+		err = ovs_ct_set_mark(skb, key, info->mark.value,
+				      info->mark.mask);
+		if (err)
+			return err;
+	}
+	if (labels_nonzero(&info->labels.mask)) {
+		err = ovs_ct_set_labels(skb, key, &info->labels.value,
+					&info->labels.mask);
+		if (err)
+			return err;
+	}
+	/* This will take care of sending queued events even if the connection
+	 * is already confirmed.
+	 */
 	if (nf_conntrack_confirm(skb) != NF_ACCEPT)
 		return -EINVAL;
 
 	return 0;
-}
-
-static bool labels_nonzero(const struct ovs_key_ct_labels *labels)
-{
-	size_t i;
-
-	for (i = 0; i < sizeof(*labels); i++)
-		if (labels->ct_labels[i])
-			return true;
-
-	return false;
 }
 
 /* Returns 0 on success, -EINPROGRESS if 'skb' is stolen, or other nonzero
@@ -525,19 +577,7 @@ int ovs_ct_execute(struct net *net, struct sk_buff *skb,
 		err = ovs_ct_commit(net, key, info, skb);
 	else
 		err = ovs_ct_lookup(net, key, info, skb);
-	if (err)
-		goto err;
 
-	if (info->mark.mask) {
-		err = ovs_ct_set_mark(skb, key, info->mark.value,
-				      info->mark.mask);
-		if (err)
-			goto err;
-	}
-	if (labels_nonzero(&info->labels.mask))
-		err = ovs_ct_set_labels(skb, key, &info->labels.value,
-					&info->labels.mask);
-err:
 	skb_push(skb, nh_ofs);
 	if (err)
 		kfree_skb(skb);
@@ -650,6 +690,20 @@ static int parse_ct(const struct nlattr *attr, struct ovs_conntrack_info *info,
 			return -EINVAL;
 		}
 	}
+#ifdef CONFIG_NF_CONNTRACK_MARK
+	if (!info->commit && info->mark.mask) {
+		OVS_NLERR(log,
+			  "Setting conntrack mark requires 'commit' flag.");
+		return -EINVAL;
+	}
+#endif
+#ifdef CONFIG_NF_CONNTRACK_LABELS
+	if (!info->commit && labels_nonzero(&info->labels.mask)) {
+		OVS_NLERR(log,
+			  "Setting conntrack labels requires 'commit' flag.");
+		return -EINVAL;
+	}
+#endif
 
 	if (rem > 0) {
 		OVS_NLERR(log, "Conntrack attr has %d unknown bytes", rem);

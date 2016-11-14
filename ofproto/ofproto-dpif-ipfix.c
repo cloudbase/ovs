@@ -494,7 +494,7 @@ dpif_ipfix_exporter_init(struct dpif_ipfix_exporter *exporter)
 {
     exporter->collectors = NULL;
     exporter->seq_number = 1;
-    exporter->last_template_set_time = TIME_MIN;
+    exporter->last_template_set_time = 0;
     hmap_init(&exporter->cache_flow_key_map);
     list_init(&exporter->cache_flow_start_timestamp_list);
     exporter->cache_active_timeout = 0;
@@ -510,7 +510,7 @@ dpif_ipfix_exporter_clear(struct dpif_ipfix_exporter *exporter)
     collectors_destroy(exporter->collectors);
     exporter->collectors = NULL;
     exporter->seq_number = 1;
-    exporter->last_template_set_time = TIME_MIN;
+    exporter->last_template_set_time = 0;
     exporter->cache_active_timeout = 0;
     exporter->cache_max_flows = 0;
 }
@@ -902,7 +902,7 @@ bool
 dpif_ipfix_get_bridge_exporter_input_sampling(const struct dpif_ipfix *di)
     OVS_EXCLUDED(mutex)
 {
-    bool ret = true;
+    bool ret = false;
     ovs_mutex_lock(&mutex);
     if (di->bridge_exporter.options) {
         ret = di->bridge_exporter.options->enable_input_sampling;
@@ -915,7 +915,7 @@ bool
 dpif_ipfix_get_bridge_exporter_output_sampling(const struct dpif_ipfix *di)
     OVS_EXCLUDED(mutex)
 {
-    bool ret = true;
+    bool ret = false;
     ovs_mutex_lock(&mutex);
     if (di->bridge_exporter.options) {
         ret = di->bridge_exporter.options->enable_output_sampling;

@@ -988,12 +988,14 @@ netdev_linux_rxq_dealloc(struct netdev_rxq *rxq_)
 }
 
 static ovs_be16
-auxdata_to_vlan_tpid(const struct tpacket_auxdata *aux)
+auxdata_to_vlan_tpid(const struct tpacket_auxdata *aux, bool double_tagged)
 {
     if (aux->tp_status & TP_STATUS_VLAN_TPID_VALID) {
         return htons(aux->tp_vlan_tpid);
+    } else if (double_tagged) {
+        return htons(ETH_TYPE_VLAN_8021AD);
     } else {
-        return htons(ETH_TYPE_VLAN);
+        return htons(ETH_TYPE_VLAN_8021Q);
     }
 }
 
@@ -1053,11 +1055,17 @@ netdev_linux_rxq_recv_sock(int fd, struct dp_packet *buffer)
 
         aux = ALIGNED_CAST(struct tpacket_auxdata *, CMSG_DATA(cmsg));
         if (auxdata_has_vlan_tci(aux)) {
+            struct eth_header *eth;
+            bool double_tagged;
+
             if (retval < ETH_HEADER_LEN) {
                 return EINVAL;
             }
 
-            eth_push_vlan(buffer, auxdata_to_vlan_tpid(aux),
+            eth = dp_packet_data(buffer);
+            double_tagged = eth->eth_type == htons(ETH_TYPE_VLAN_8021Q);
+
+            eth_push_vlan(buffer, auxdata_to_vlan_tpid(aux, double_tagged),
                           htons(aux->tp_vlan_tci));
             break;
         }
@@ -1112,7 +1120,6 @@ netdev_linux_rxq_recv(struct netdev_rxq *rxq_, struct dp_packet **packets,
         dp_packet_delete(buffer);
     } else {
         dp_packet_pad(buffer);
-        dp_packet_rss_invalidate(buffer);
         packets[0] = buffer;
         *c = 1;
     }
@@ -1477,10 +1484,9 @@ netdev_linux_get_miimon(const char *name, bool *miimon)
 
         if (!error) {
             *miimon = !!(data.val_out & BMSR_LSTATUS);
-        } else {
-            VLOG_WARN_RL(&rl, "%s: failed to query MII", name);
         }
-    } else {
+    }
+    if (error) {
         struct ethtool_cmd ecmd;
 
         VLOG_DBG_RL(&rl, "%s: failed to query MII, falling back to ethtool",
@@ -2042,7 +2048,7 @@ netdev_linux_set_policing(struct netdev *netdev_,
     int error;
 
     kbits_burst = (!kbits_rate ? 0       /* Force to 0 if no rate specified. */
-                   : !kbits_burst ? 1000 /* Default to 1000 kbits if 0. */
+                   : !kbits_burst ? 8000 /* Default to 8000 kbits if 0. */
                    : kbits_burst);       /* Stick with user-specified value. */
 
     ovs_mutex_lock(&netdev->mutex);
@@ -4802,21 +4808,15 @@ tc_add_policer(struct netdev *netdev,
     tc_police.mtu = mtu;
     tc_fill_rate(&tc_police.rate, ((uint64_t) kbits_rate * 1000)/8, mtu);
 
-    /* The following appears wrong in two ways:
-     *
-     * - tc_bytes_to_ticks() should take "bytes" as quantity for both of its
-     *   arguments (or at least consistently "bytes" as both or "bits" as
-     *   both), but this supplies bytes for the first argument and bits for the
-     *   second.
-     *
-     * - In networking a kilobit is usually 1000 bits but this uses 1024 bits.
+    /* The following appears wrong in one way: In networking a kilobit is
+     * usually 1000 bits but this uses 1024 bits.
      *
      * However if you "fix" those problems then "tc filter show ..." shows
      * "125000b", meaning 125,000 bits, when OVS configures it for 1000 kbit ==
      * 1,000,000 bits, whereas this actually ends up doing the right thing from
      * tc's point of view.  Whatever. */
     tc_police.burst = tc_bytes_to_ticks(
-        tc_police.rate.rate, MIN(UINT32_MAX / 1024, kbits_burst) * 1024);
+        tc_police.rate.rate, MIN(UINT32_MAX / 1024, kbits_burst) * 1024 / 8);
 
     tcmsg = tc_make_request(netdev, RTM_NEWTFILTER,
                             NLM_F_EXCL | NLM_F_CREATE, &request);

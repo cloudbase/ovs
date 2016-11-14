@@ -414,6 +414,9 @@ udpif_destroy(struct udpif *udpif)
 {
     udpif_stop_threads(udpif);
 
+    dpif_register_dp_purge_cb(udpif->dpif, NULL, udpif);
+    dpif_register_upcall_cb(udpif->dpif, NULL, udpif);
+
     for (int i = 0; i < N_UMAPS; i++) {
         cmap_destroy(&udpif->ukeys[i].cmap);
         ovs_mutex_destroy(&udpif->ukeys[i].mutex);
@@ -1065,7 +1068,16 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
 
     upcall->dump_seq = seq_read(udpif->dump_seq);
     upcall->reval_seq = seq_read(udpif->reval_seq);
+
     xlate_actions(&xin, &upcall->xout);
+    if (wc) {
+        /* Convert the input port wildcard from OFP to ODP format. There's no
+         * real way to do this for arbitrary bitmasks since the numbering spaces
+         * aren't the same. However, flow translation always exact matches the
+         * whole thing, so we can do the same here. */
+        WC_MASK_FIELD(wc, in_port.odp_port);
+    }
+
     upcall->xout_initialized = true;
 
     /* Special case for fail-open mode.
@@ -1508,7 +1520,7 @@ ukey_create_from_upcall(struct upcall *upcall, struct flow_wildcards *wc)
     atomic_read_relaxed(&enable_megaflows, &megaflow);
     ofpbuf_use_stack(&maskbuf, &maskstub, sizeof maskstub);
     if (megaflow) {
-        odp_parms.odp_in_port = ODPP_NONE;
+        odp_parms.odp_in_port = wc->masks.in_port.odp_port;
         odp_parms.key_buf = &keybuf;
 
         odp_flow_key_from_mask(&odp_parms, &maskbuf);
@@ -1541,7 +1553,8 @@ ukey_create_from_dpif_flow(const struct udpif *udpif,
         /* If the key or actions were not provided by the datapath, fetch the
          * full flow. */
         ofpbuf_use_stack(&buf, &stub, sizeof stub);
-        err = dpif_flow_get(udpif->dpif, NULL, 0, &flow->ufid,
+        err = dpif_flow_get(udpif->dpif, flow->key, flow->key_len,
+                            flow->ufid_present ? &flow->ufid : NULL,
                             flow->pmd_id, &buf, &full_flow);
         if (err) {
             return err;
@@ -1952,7 +1965,7 @@ modify_op_init(struct ukey_op *op, struct udpif_key *ukey)
     op->dop.u.flow_put.key_len = ukey->key_len;
     op->dop.u.flow_put.mask = ukey->mask;
     op->dop.u.flow_put.mask_len = ukey->mask_len;
-    op->dop.u.flow_put.ufid = &ukey->ufid;
+    op->dop.u.flow_put.ufid = ukey->ufid_present ? &ukey->ufid : NULL;
     op->dop.u.flow_put.pmd_id = ukey->pmd_id;
     op->dop.u.flow_put.stats = NULL;
     ukey_get_actions(ukey, &op->dop.u.flow_put.actions,
@@ -2070,6 +2083,7 @@ log_unexpected_flow(const struct dpif_flow *flow, int error)
                   "unexpected flow (%s): ", ovs_strerror(error));
     odp_format_ufid(&flow->ufid, &ds);
     VLOG_WARN_RL(&rl, "%s", ds_cstr(&ds));
+    ds_destroy(&ds);
 }
 
 static void

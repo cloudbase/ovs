@@ -1,6 +1,21 @@
-v2.5.1 - 26 Feb 2016
+v2.5.2 - xx xxx xxxx
 ---------------------
+   - ovs-ctl:
+     * Added the ability to selectively start the forwarding and database
+       functions (ovs-vswitchd and ovsdb-server, respectively).
+   - Fedora packaging:
+     * A package upgrade does not automatically restart OVS service.
 
+v2.5.1 - 27 Sep 2016
+---------------------
+   - DPDK:
+     * New appctl command 'dpif-netdev/pmd-rxq-show' to check the port/rxq
+       assignment.
+     * Type of log messages from PMD threads changed from INFO to DBG.
+   - ovs-pki: Changed message digest algorithm from SHA-1 to SHA-512 because
+     SHA-1 is no longer secure and some operating systems have started to
+     disable it in OpenSSL.
+   - Bug fixes
 
 v2.5.0 - 26 Feb 2016
 ---------------------

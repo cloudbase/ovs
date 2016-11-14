@@ -272,9 +272,12 @@ Performance Tuning:
 
 	NIC port0 <-> OVS <-> VM <-> OVS <-> NIC port 1
 
-	The OVS log can be checked to confirm that the port/rxq assignment to
-	pmd threads is as required. This can also be checked with the following
-	commands:
+	The following command can be used to confirm that the port/rxq assignment
+	to pmd threads is as required:
+
+	`ovs-appctl dpif-netdev/pmd-rxq-show`
+
+	This can also be checked with:
 
 	```
 	top -H
@@ -579,6 +582,17 @@ Follow the steps below to attach vhost-user port(s) to a VM.
    -netdev type=vhost-user,id=mynet2,chardev=char2,vhostforce,queues=$q
    -device virtio-net-pci,mac=00:00:00:00:00:02,netdev=mynet2,mq=on,vectors=$v
    ```
+
+   A least 2 PMDs should be configured for the vswitch when using multiqueue.
+   Using a single PMD will cause traffic to be enqueued to the same vhost
+   queue rather than being distributed among different vhost queues for a
+   vhost-user interface.
+
+   If traffic destined for a VM configured with multiqueue arrives to the
+   vswitch via a physical DPDK port, then the number of rxqs should also be
+   set to at least 2 for that physical DPDK port. This is required to increase
+   the probability that a different PMD will handle the multiqueue
+   transmission to the guest using a different vhost queue.
 
    If one wishes to use multiple queues for an interface in the guest, the
    driver in the guest operating system must be configured to do so. It is
