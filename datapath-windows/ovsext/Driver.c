@@ -47,7 +47,7 @@ NDIS_HANDLE gOvsExtDriverHandle;
  */
 extern POVS_SWITCH_CONTEXT gOvsSwitchContext;
 
-static PWCHAR ovsExtFriendlyName = L"Open vSwitch Extension";
+static PWCHAR ovsExtFriendlyName = L"Cloudbase Open vSwitch Extension";
 static PWCHAR ovsExtServiceName = L"OVSExt";
 NDIS_STRING ovsExtGuidUC;
 NDIS_STRING ovsExtFriendlyNameUC;

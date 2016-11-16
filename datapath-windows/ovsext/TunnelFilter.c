@@ -54,10 +54,10 @@
 
 /* The provider description should always contain the OVS service description
  * string from the install file. */
-#define OVS_TUNNEL_PROVIDER_DESC        L"Open vSwitch Extension tunnel provider"
+#define OVS_TUNNEL_PROVIDER_DESC        L"Cloudbase Open vSwitch Extension tunnel provider"
 
 /* The session name isn't required but it's useful for diagnostics. */
-#define OVS_TUNNEL_SESSION_NAME         L"OVS tunnel session"
+#define OVS_TUNNEL_SESSION_NAME         L"Cloudbase OVS tunnel session"
 
 /* Maximum number of tunnel threads to be created. */
 #define OVS_TUNFLT_MAX_THREADS          8
