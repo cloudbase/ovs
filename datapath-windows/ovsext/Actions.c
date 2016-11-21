@@ -1502,7 +1502,11 @@ OvsExecuteSetAction(OvsForwardingContext *ovsFwdCtx,
         RtlCopyMemory(&ovsFwdCtx->tunKey, &tunKey, sizeof ovsFwdCtx->tunKey);
         break;
     }
-
+    case OVS_KEY_ATTR_IPV6:
+    case OVS_KEY_ATTR_TCP:
+    case OVS_KEY_ATTR_UDP:
+    case OVS_KEY_ATTR_SCTP:
+    case OVS_KEY_ATTR_MPLS:
     default:
         OVS_LOG_INFO("Unhandled attribute %#x", type);
         break;
@@ -2085,14 +2089,6 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
                          srcPortNo, 0,
                          NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(curNbl),
                          completionList, layers, TRUE);
-    status = OvsExtractFlow(ovsFwdCtx.curNbl, ovsFwdCtx.srcVportNo, key,
-                            &ovsFwdCtx.layers, NULL);
-    if (status != NDIS_STATUS_SUCCESS) {
-        OvsCompleteNBLForwardingCtx(&ovsFwdCtx,
-            L"OVS-Dropped due to extract flow failure");
-        ovsActionStats.failedFlowMiss++;
-        return NDIS_STATUS_FAILURE;
-    }
 
     flow = OvsLookupFlow(&ovsFwdCtx.switchContext->datapath, key, &hash, FALSE);
     if (flow) {
