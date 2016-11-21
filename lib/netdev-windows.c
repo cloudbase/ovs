@@ -138,11 +138,11 @@ dp_to_netdev_ifi_flags(uint32_t dp_flags)
 {
     uint32_t nd_flags = 0;
 
-    if (dp_flags && OVS_WIN_NETDEV_IFF_UP) {
+    if (dp_flags & OVS_WIN_NETDEV_IFF_UP) {
         nd_flags |= NETDEV_UP;
     }
 
-    if (dp_flags && OVS_WIN_NETDEV_IFF_PROMISC) {
+    if (dp_flags & OVS_WIN_NETDEV_IFF_PROMISC) {
         nd_flags |= NETDEV_PROMISC;
     }
 
@@ -226,7 +226,7 @@ netdev_windows_netdev_from_ofpbuf(struct netdev_windows_netdev_info *info,
 
     netdev_windows_info_init(info);
 
-    struct ofpbuf b = ofpbuf_const_initializer(&b, buf->data, buf->size);
+    struct ofpbuf b = ofpbuf_const_initializer(buf->data, buf->size);
     struct nlmsghdr *nlmsg = ofpbuf_try_pull(&b, sizeof *nlmsg);
     struct genlmsghdr *genl = ofpbuf_try_pull(&b, sizeof *genl);
     struct ovs_header *ovs_header = ofpbuf_try_pull(&b, sizeof *ovs_header);
@@ -245,7 +245,7 @@ netdev_windows_netdev_from_ofpbuf(struct netdev_windows_netdev_info *info,
     info->ovs_type = nl_attr_get_u32(a[OVS_WIN_NETDEV_ATTR_TYPE]);
     info->name = nl_attr_get_string(a[OVS_WIN_NETDEV_ATTR_NAME]);
     memcpy(&info->mac_address, nl_attr_get_unspec(a[OVS_WIN_NETDEV_ATTR_MAC_ADDR],
-               sizeof(info->mac_address)), sizeof(info->mac_address));
+           sizeof(info->mac_address)), sizeof(info->mac_address));
     info->mtu = nl_attr_get_u32(a[OVS_WIN_NETDEV_ATTR_MTU]);
     info->ifi_flags = nl_attr_get_u32(a[OVS_WIN_NETDEV_ATTR_IF_FLAGS]);
 
