@@ -827,17 +827,16 @@ create_wmi_port(char *name) {
     pcls_obj->lpVtbl->Release(pcls_obj);
     pcls_obj = NULL;
 
-    wcscat_s(internal_port_query, sizeof(internal_port_query),
-             L"\" AND VirtualSystemIdentifier = \"");
-    wcscat_s(internal_port_query, sizeof(internal_port_query),
-             vt_prop.bstrVal);
+    /* Should be enough to give the InstanceID, from msdn documentation:
+     * Uniquely identifies an instance of this class. This property is
+     * inherited from CIM_SettingData and is always
+     * set to "Microsoft:GUID\DeviceSpecificData". */
     wcscat_s(internal_port_query, sizeof(internal_port_query),
              L"\" AND InstanceID  = \"Microsoft:");
     wcscat_s(internal_port_query, sizeof(internal_port_query),
              vt_prop.bstrVal);
     wcscat_s(internal_port_query, sizeof(internal_port_query),
-             L"\" AND Caption = \"Virtual Ethernet Switch Settings\" AND "
-             L"VirtualSystemType = \"DMTF:Virtual Ethernet Switch\"");
+             L"\"");
 
     VariantClear(&vt_prop);
 
@@ -903,12 +902,15 @@ create_wmi_port(char *name) {
     penumerate = NULL;
 
     /* Retrieve the default computer system on which the port allocation will
-     * be hosted. */
+     * be hosted.
+     * Instead of querying using Description, we can query using InstallDate.
+     * From MSDN documentation regarding InstallDate:
+     * The date and time the virtual machine configuration was created for
+     * a virtual machine, or Null, for a management operating system. */
     hres = psvc->lpVtbl->ExecQuery(psvc,
                                    L"WQL",
                                    L"SELECT * FROM Msvm_ComputerSystem WHERE "
-                                   L"Description = \"Microsoft Hosting "
-                                   L"Computer System\"",
+                                   L"InstallDate is NULL",
                                    WBEM_FLAG_FORWARD_ONLY |
                                    WBEM_FLAG_RETURN_IMMEDIATELY,
                                    NULL,
