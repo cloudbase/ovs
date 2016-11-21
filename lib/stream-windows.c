@@ -430,7 +430,7 @@ pwindows_accept(struct pstream *pstream, struct stream **new_streamp)
     DWORD number = WaitForMultipleObjects(MAX_NUMBER_OF_INSTANCES,
                                           p->hEvents,
                                           FALSE,
-                                          2);
+                                          0);
 
     the_handle = number - WAIT_OBJECT_0;
     if (the_handle < 0 || the_handle >(MAX_NUMBER_OF_INSTANCES - 1)) {
@@ -533,7 +533,8 @@ pwindows_close(struct pstream *pstream)
 static void
 pwindows_wait(struct pstream *pstream)
 {
-    poll_immediate_wake();
+    long long now = time_msec();
+    poll_timer_wait_until(now + 16);
 }
 
 /* Passive named pipe. */
