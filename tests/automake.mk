@@ -52,6 +52,7 @@ TESTSUITE_AT = \
 	tests/tunnel.at \
 	tests/tunnel-push-pop.at \
 	tests/tunnel-push-pop-ipv6.at \
+	tests/ovs-router.at \
 	tests/lockfile.at \
 	tests/reconnect.at \
 	tests/ovs-vswitchd.at \
@@ -94,7 +95,8 @@ TESTSUITE_AT = \
 	tests/ovn-nbctl.at \
 	tests/ovn-sbctl.at \
 	tests/ovn-controller.at \
-	tests/ovn-controller-vtep.at
+	tests/ovn-controller-vtep.at \
+	tests/mcast-snooping.at
 
 SYSTEM_KMOD_TESTSUITE_AT = \
 	tests/system-common-macros.at \
