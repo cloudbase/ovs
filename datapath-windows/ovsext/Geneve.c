@@ -91,7 +91,7 @@ NDIS_STATUS OvsEncapGeneve(POVS_VPORT_ENTRY vport,
     ULONG mss = 0;
     NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO csumInfo;
 
-    status = OvsLookupIPFwdInfo(tunKey->dst, &fwdInfo);
+    status = OvsLookupIPFwdInfo(tunKey->src, tunKey->dst, &fwdInfo);
     if (status != STATUS_SUCCESS) {
         OvsFwdIPHelperRequest(NULL, 0, tunKey, NULL, NULL, NULL);
         // return NDIS_STATUS_PENDING;

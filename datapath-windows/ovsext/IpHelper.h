@@ -130,7 +130,7 @@ NTSTATUS OvsFwdIPHelperRequest(PNET_BUFFER_LIST nbl, UINT32 inPort,
                                OvsIPHelperCallback cb,
                                PVOID cbData1,
                                PVOID cbData2);
-NTSTATUS OvsLookupIPFwdInfo(UINT32 dstIp, POVS_FWD_INFO info);
+NTSTATUS OvsLookupIPFwdInfo(UINT32 srcIp, UINT32 dstIp, POVS_FWD_INFO info);
 VOID OvsCancelFwdIpHelperRequest(PNET_BUFFER_LIST nbl);
 
 #endif /* __IP_HELPER_H_ */

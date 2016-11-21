@@ -114,7 +114,7 @@ OvsEncapStt(POVS_VPORT_ENTRY vport,
     NDIS_STATUS status;
 
     UNREFERENCED_PARAMETER(switchContext);
-    status = OvsLookupIPFwdInfo(tunKey->dst, &fwdInfo);
+    status = OvsLookupIPFwdInfo(tunKey->src, tunKey->dst, &fwdInfo);
     if (status != STATUS_SUCCESS) {
         OvsFwdIPHelperRequest(NULL, 0, tunKey, NULL, NULL, NULL);
         /*

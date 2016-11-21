@@ -102,7 +102,7 @@ OvsEncapGre(POVS_VPORT_ENTRY vport,
     OVS_FWD_INFO fwdInfo;
     NDIS_STATUS status;
 
-    status = OvsLookupIPFwdInfo(tunKey->dst, &fwdInfo);
+    status = OvsLookupIPFwdInfo(tunKey->src, tunKey->dst, &fwdInfo);
     if (status != STATUS_SUCCESS) {
         OvsFwdIPHelperRequest(NULL, 0, tunKey, NULL, NULL, NULL);
         return NDIS_STATUS_FAILURE;
