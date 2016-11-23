@@ -31,13 +31,13 @@ BEGIN
         BLOCK "000004b0"
         BEGIN
             VALUE "CompanyName", "Cloudbase Solutions Srl"
-            VALUE "FileDescription", "Open vSwitch Extension"
-            VALUE "FileVersion", "2.5.0.1"
+            VALUE "FileDescription", "Cloudbase Open vSwitch Extension"
+            VALUE "FileVersion", "2.6.1.0"
             VALUE "InternalName", "OVSExt.SYS"
             VALUE "LegalCopyright", "Licensed under the Apache License, Version 2.0 (the ""License"")"
             VALUE "OriginalFilename", "OVSExt.SYS"
-            VALUE "ProductName", "Open vSwitch Extension"
-            VALUE "ProductVersion", "2.5.0.1"
+            VALUE "ProductName", "Cloudbase Open vSwitch Extension"
+            VALUE "ProductVersion", "2.6.1.0"
         END
     END
     BLOCK "VarFileInfo"

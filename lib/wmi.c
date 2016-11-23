@@ -730,7 +730,7 @@ create_wmi_port(char *name) {
                                    L"SELECT * "
                                    L"FROM Msvm_EthernetSwitchExtension "
                                    L"WHERE "
-                                   L"ElementName=\"Open vSwitch Extension\" "
+                                   L"ElementName=\"Cloudbase Open vSwitch Extension\" "
                                    L"AND EnabledState=2 "
                                    L"AND HealthState=5",
                                    WBEM_FLAG_FORWARD_ONLY |
@@ -744,7 +744,7 @@ create_wmi_port(char *name) {
     }
 
     if (!get_first_element(penumerate, &pcls_obj)) {
-        VLOG_WARN("Open vSwitch Extension is not enabled on any switch");
+        VLOG_WARN("Cloudbase Open vSwitch Extension is not enabled on any switch");
         retval = false;
         goto error;
     }
