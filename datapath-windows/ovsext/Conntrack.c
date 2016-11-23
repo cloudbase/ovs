@@ -42,6 +42,8 @@ static PNDIS_RW_LOCK_EX ovsConntrackLockObj;
 extern POVS_SWITCH_CONTEXT gOvsSwitchContext;
 static UINT64 ctTotalEntries;
 
+static __inline NDIS_STATUS OvsCtFlush(UINT16 zone);
+
 /*
  *----------------------------------------------------------------------------
  * OvsInitConntrack
@@ -116,6 +118,9 @@ OvsCleanupConntrack(VOID)
     KeWaitForSingleObject(ctThreadCtx.threadObject, Executive,
                           KernelMode, FALSE, NULL);
     ObDereferenceObject(ctThreadCtx.threadObject);
+
+    /* Force flush all entries before removing */
+    OvsCtFlush(0);
 
     if (ovsConntrackTable) {
         OvsFreeMemoryWithTag(ovsConntrackTable, OVS_CT_POOL_TAG);
@@ -194,7 +199,7 @@ OvsCtEntryCreate(PNET_BUFFER_LIST curNbl,
             TCPHdr tcpStorage;
             const TCPHdr *tcp;
             tcp = OvsGetTcp(curNbl, l4Offset, &tcpStorage);
-            if (!OvsConntrackValidateTcpPacket(tcp)) {
+            if (!tcp || !OvsConntrackValidateTcpPacket(tcp)) {
                 goto invalid;
             }
 
@@ -215,7 +220,7 @@ OvsCtEntryCreate(PNET_BUFFER_LIST curNbl,
             ICMPHdr storage;
             const ICMPHdr *icmp;
             icmp = OvsGetIcmp(curNbl, l4Offset, &storage);
-            if (!OvsConntrackValidateIcmpPacket(icmp)) {
+            if (!icmp || !OvsConntrackValidateIcmpPacket(icmp)) {
                 goto invalid;
             }
 
