@@ -171,7 +171,7 @@
     <Component Id="OvsdbServerService" Directory="BINARIESDIR" Guid="{280201D5-35E7-45D6-83B9-293F1A4F7F0E}">
       <File Id="ovsdbserver.exe" Source="Services\ovsdb-server.exe" Checksum="yes" />
       <ServiceInstall
-                Arguments='--log-file="[LOGSDIR]ovsdb-server.log" --pidfile --service --service-monitor --unixctl="[APPDATADIR]ovsdb-server.ctl" --remote=punix:"[APPDATADIR]db.sock" "[CONFDIR]conf.db"'
+                Arguments='--log-file="[LOGSDIR]ovsdb-server.log" --pidfile --service --service-monitor --unixctl="[APPDATADIR]ovsdb-server.ctl" --remote=punix:"[APPDATADIR]db.sock" --remote=db:Open_vSwitch,Open_vSwitch,manager_options "[CONFDIR]conf.db"'
                 Id="OvsdbServerServiceInstaller"
                 Type="ownProcess"
                 Vital="yes"
