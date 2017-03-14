@@ -39,6 +39,11 @@
              ConfigurableDirectory="INSTALLDIR" Display="expand">
       <ComponentGroupRef Id="BinariesComponentGroup" />
       <ComponentGroupRef Id="SymbolsComponentGroup" />
+      <ComponentRef Id="ConfDir" />
+      <ComponentRef Id="LogsDir" />
+      <ComponentRef Id="AppDataDir" />
+      <ComponentRef Id="OvsdbServerService" />
+      <ComponentRef Id="OvsVSwitchdService" />
       <ComponentRef Id="OpenvSwitchEnvVars" />
 
       <Feature Id="VC120Redist" Title="Visual C++ 12.0 Runtime" AllowAdvertise="no" Display="hidden" Level="1"
@@ -51,11 +56,6 @@
              Description="Installs the Open vSwitch Hyper-V switch extension driver." Display="expand">
       <ComponentRef Id="OpenvSwitchDriver_Win8" />
       <ComponentRef Id="OpenvSwitchDriver_Win8.1" />
-      <ComponentRef Id="ConfDir" />
-      <ComponentRef Id="LogsDir" />
-      <ComponentRef Id="AppDataDir" />
-      <ComponentRef Id="OvsdbServerService" />
-      <ComponentRef Id="OvsVSwitchdService" />
       <ComponentRef Id="OpenvSwitchPSModule" />
     </Feature>
 
@@ -73,21 +73,21 @@
       <Custom Action="UninstallOpenVSwitchDriver_Prop" After="CostFinalize"><![CDATA[(&OpenvSwitchDriver=2) AND (!OpenvSwitchDriver=3)]]></Custom>
       <Custom Action="UninstallOpenVSwitchDriver" Before="InstallFinalize" ><![CDATA[(&OpenvSwitchDriver=2) AND (!OpenvSwitchDriver=3)]]></Custom>
 
-      <Custom Action="GenerateConfDB_Prop" After="CostFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="GenerateConfDB" Before="ChangeOvsdbServerService" ><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
+      <Custom Action="GenerateConfDB_Prop" After="CostFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="GenerateConfDB" Before="ChangeOvsdbServerService" ><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
 
-      <Custom Action="StartOvsdbServerService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="RestartOvsdbServerService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="ChangeOvsdbServerService" Before="ChangeOvsVSwitchdService"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
+      <Custom Action="StartOvsdbServerService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="RestartOvsdbServerService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="ChangeOvsdbServerService" Before="ChangeOvsVSwitchdService"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
 
-      <Custom Action="InitializeDB_Prop" After="CostFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="InitializeDB" After="ChangeOvsdbServerService" ><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
+      <Custom Action="InitializeDB_Prop" After="CostFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="InitializeDB" After="ChangeOvsdbServerService" ><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
 
-      <Custom Action="AddTriggerToOvsVswitchdService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="AddTriggerToOvsVswitchdService" Before="ChangeOvsVSwitchdService"><![CDATA[NOT Installed AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="StartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="RestartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
-      <Custom Action="ChangeOvsVSwitchdService" Before="InstallFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitchDriver = 3)]]></Custom>
+      <Custom Action="AddTriggerToOvsVswitchdService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="AddTriggerToOvsVswitchdService" Before="ChangeOvsVSwitchdService"><![CDATA[NOT Installed AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="StartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="RestartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
+      <Custom Action="ChangeOvsVSwitchdService" Before="InstallFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
     </InstallExecuteSequence>
   </Product>
 
