@@ -30,6 +30,7 @@
 #include "cfm.h"
 #include "connmgr.h"
 #include "coverage.h"
+#include "csum.h"
 #include "dp-packet.h"
 #include "dpif.h"
 #include "in-band.h"
@@ -1658,7 +1659,7 @@ lookup_input_bundle(const struct xbridge *xbridge, ofp_port_t in_port,
         static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
 
         VLOG_WARN_RL(&rl, "bridge %s: received packet on unknown "
-                     "port %"PRIu16, xbridge->name, in_port);
+                     "port %"PRIu32, xbridge->name, in_port);
     }
     return NULL;
 }
@@ -1902,15 +1903,23 @@ output_normal(struct xlate_ctx *ctx, const struct xbundle *out_xbundle,
         struct flow_wildcards *wc = ctx->wc;
         struct ofport_dpif *ofport;
 
-        if (ctx->xbridge->support.odp.recirc) {
-            use_recirc = bond_may_recirc(
-                out_xbundle->bond, &xr.recirc_id, &xr.hash_basis);
-
-            if (use_recirc) {
-                /* Only TCP mode uses recirculation. */
+        if (ctx->xbridge->support.odp.recirc
+            && bond_may_recirc(out_xbundle->bond, NULL, NULL)) {
+            /* To avoid unnecessary locking, bond_may_recirc() is first
+             * called outside of the 'rwlock'. After acquiring the lock,
+             * bond_update_post_recirc_rules() will check again to make
+             * sure bond configuration has not been changed.
+             *
+             * In case recirculation is not actually in use, 'xr.recirc_id'
+             * will be set to '0', Since a valid 'recirc_id' can
+             * not be zero.  */
+            bond_update_post_recirc_rules(out_xbundle->bond,
+                                          &xr.recirc_id,
+                                          &xr.hash_basis);
+            if (xr.recirc_id) {
+                /* Use recirculation instead of output. */
+                use_recirc = true;
                 xr.hash_alg = OVS_HASH_ALG_L4;
-                bond_update_post_recirc_rules(out_xbundle->bond, false);
-
                 /* Recirculation does not require unmasking hash fields. */
                 wc = NULL;
             }
@@ -2173,8 +2182,19 @@ update_mcast_snooping_table4__(const struct xbridge *xbridge,
     OVS_REQ_WRLOCK(ms->rwlock)
 {
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 30);
+    const struct igmp_header *igmp;
     int count;
+    size_t offset;
     ovs_be32 ip4 = flow->igmp_group_ip4;
+
+    offset = (char *) dp_packet_l4(packet) - (char *) dp_packet_data(packet);
+    igmp = dp_packet_at(packet, offset, IGMP_HEADER_LEN);
+    if (!igmp || csum(igmp, dp_packet_l4_size(packet)) != 0) {
+        VLOG_DBG_RL(&rl, "bridge %s: multicast snooping received bad IGMP "
+                    "checksum on port %s in VLAN %d",
+                    xbridge->name, in_xbundle->name, vlan);
+        return;
+    }
 
     switch (ntohs(flow->tp_src)) {
     case IGMP_HOST_MEMBERSHIP_REPORT:
@@ -2221,7 +2241,22 @@ update_mcast_snooping_table6__(const struct xbridge *xbridge,
     OVS_REQ_WRLOCK(ms->rwlock)
 {
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 30);
+    const struct mld_header *mld;
     int count;
+    size_t offset;
+
+    offset = (char *) dp_packet_l4(packet) - (char *) dp_packet_data(packet);
+    mld = dp_packet_at(packet, offset, MLD_HEADER_LEN);
+
+    if (!mld ||
+        packet_csum_upperlayer6(dp_packet_l3(packet),
+                                mld, IPPROTO_ICMPV6,
+                                dp_packet_l4_size(packet)) != 0) {
+        VLOG_DBG_RL(&rl, "bridge %s: multicast snooping received bad MLD "
+                    "checksum on port %s in VLAN %d",
+                    xbridge->name, in_xbundle->name, vlan);
+        return;
+    }
 
     switch (ntohs(flow->tp_src)) {
     case MLD_QUERY:
@@ -3039,6 +3074,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                 }
                 return;
             }
+        } else if ((xport->cfm && cfm_should_process_flow(xport->cfm, flow, wc))
+                   || (xport->bfd && bfd_should_process_flow(xport->bfd, flow,
+                                                             wc))) {
+            /* Pass; STP should not block link health detection. */
         } else if (!xport_stp_forward_state(xport) ||
                    !xport_rstp_forward_state(xport)) {
             if (ctx->xbridge->stp != NULL) {
@@ -3863,7 +3902,8 @@ compose_mpls_push_action(struct xlate_ctx *ctx, struct ofpact_push_mpls *mpls)
         return;
     }
 
-    flow_push_mpls(flow, n, mpls->ethertype, ctx->wc);
+    /* Update flow's MPLS stack, and clear L3/4 fields to mark them invalid. */
+    flow_push_mpls(flow, n, mpls->ethertype, ctx->wc, true);
 }
 
 static void

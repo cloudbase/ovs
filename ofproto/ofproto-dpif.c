@@ -1715,7 +1715,15 @@ set_tables_version(struct ofproto *ofproto_, ovs_version_t version)
 {
     struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofproto_);
 
-    atomic_store_relaxed(&ofproto->tables_version, version);
+    /* Use memory_order_release to signify that any prior memory accesses can
+     * not be reordered to happen after this atomic store.  This makes sure the
+     * new version is properly set up when the readers can read this 'version'
+     * value. */
+    atomic_store_explicit(&ofproto->tables_version, version,
+                          memory_order_release);
+    /* 'need_revalidate' can be reordered to happen before the atomic_store
+     * above, but it does not matter as this variable is not accessed by other
+     * threads. */
     ofproto->backer->need_revalidate = REV_FLOW_TABLE;
 }
 
@@ -2863,6 +2871,7 @@ bundle_destroy(struct ofbundle *bundle)
     }
 
     bundle_flush_macs(bundle, true);
+    mcast_snooping_flush_bundle(ofproto->ms, bundle);
     hmap_remove(&ofproto->bundles, &bundle->hmap_node);
     free(bundle->name);
     free(bundle->trunks);
@@ -3048,6 +3057,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
      * everything on this port and force flow revalidation. */
     if (need_flush) {
         bundle_flush_macs(bundle, false);
+        mcast_snooping_flush_bundle(ofproto->ms, bundle);
     }
 
     return 0;
@@ -3906,8 +3916,12 @@ ofproto_dpif_get_tables_version(struct ofproto_dpif *ofproto OVS_UNUSED)
 {
     ovs_version_t version;
 
-    atomic_read_relaxed(&ofproto->tables_version, &version);
-
+    /* Use memory_order_acquire to signify that any following memory accesses
+     * can not be reordered to happen before this atomic read.  This makes sure
+     * all following reads relate to this or a newer version, but never to an
+     * older version. */
+    atomic_read_explicit(&ofproto->tables_version, &version,
+                         memory_order_acquire);
     return version;
 }
 
@@ -4033,7 +4047,7 @@ rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto,
 
             port = ofp_port_to_ofport(ofproto, old_in_port);
             if (!port) {
-                VLOG_WARN_RL(&rl, "packet-in on unknown OpenFlow port %"PRIu16,
+                VLOG_WARN_RL(&rl, "packet-in on unknown OpenFlow port %"PRIu32,
                              old_in_port);
             } else if (!(port->up.pp.config & OFPUTIL_PC_NO_PACKET_IN)) {
                 rule = ofproto->miss_rule;
@@ -5584,6 +5598,8 @@ ofproto_dpif_delete_internal_flow(struct ofproto_dpif *ofproto,
         .match = *match,
         .priority = priority,
         .table_id = TBL_INTERNAL,
+        .out_port = OFPP_ANY,
+        .out_group = OFPG_ANY,
         .flags = OFPUTIL_FF_HIDDEN_FIELDS | OFPUTIL_FF_NO_READONLY,
         .command = OFPFC_DELETE_STRICT,
     };

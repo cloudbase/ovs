@@ -3848,7 +3848,7 @@ dp_netdev_upcall(struct dp_netdev_pmd_thread *pmd, struct dp_packet *packet_,
         struct ofpbuf key;
         struct odp_flow_key_parms odp_parms = {
             .flow = flow,
-            .mask = &wc->masks,
+            .mask = wc ? &wc->masks : NULL,
             .support = dp_netdev_support,
         };
 
@@ -4201,7 +4201,6 @@ fast_path_processing(struct dp_netdev_pmd_thread *pmd,
         ofpbuf_uninit(&actions);
         ofpbuf_uninit(&put_actions);
         fat_rwlock_unlock(&dp->upcall_rwlock);
-        dp_netdev_count_packet(pmd, DP_STAT_LOST, lost_cnt);
     } else if (OVS_UNLIKELY(any_miss)) {
         for (i = 0; i < cnt; i++) {
             if (OVS_UNLIKELY(!rules[i])) {

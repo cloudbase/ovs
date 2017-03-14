@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Nicira, Inc.
+ * Copyright (c) 2016, 2017 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1173,17 +1173,18 @@ execute_get_mac_bind(const struct ovnact_get_mac_bind *bind,
     const struct ovntrace_mac_binding *binding
         = ovntrace_mac_binding_find(dp, port_key, &ip);
 
-    const struct eth_addr mac = binding ? binding->mac : eth_addr_zero;
+    uflow->dl_dst = binding ? binding->mac : eth_addr_zero;
     if (binding) {
         ovntrace_node_append(super, OVNTRACE_NODE_ACTION,
                              "/* MAC binding to "ETH_ADDR_FMT". */",
-                             ETH_ADDR_ARGS(mac));
+                             ETH_ADDR_ARGS(uflow->dl_dst));
     } else {
         ovntrace_node_append(super, OVNTRACE_NODE_ACTION,
                              "/* No MAC binding. */");
     }
     ovntrace_node_append(super, OVNTRACE_NODE_MODIFY,
-                         "eth.dst = "ETH_ADDR_FMT, ETH_ADDR_ARGS(mac));
+                         "eth.dst = "ETH_ADDR_FMT,
+                         ETH_ADDR_ARGS(uflow->dl_dst));
 }
 
 static void
@@ -1219,7 +1220,7 @@ trace_actions(const struct ovnact *ovnacts, size_t ovnacts_len,
             break;
 
         case OVNACT_NEXT:
-            trace__(dp, uflow, table_id + 1, pipeline, super);
+            trace__(dp, uflow, ovnact_get_NEXT(a)->ltable, pipeline, super);
             break;
 
         case OVNACT_LOAD:
@@ -1344,14 +1345,16 @@ trace(const char *dp_s, const char *flow_s)
 {
     const struct ovntrace_datapath *dp = ovntrace_datapath_find_by_name(dp_s);
     if (!dp) {
-        ovs_fatal(0, "unknown datapath \"%s\"", dp_s);
+        return xasprintf("unknown datapath \"%s\"\n", dp_s);
     }
 
     struct flow uflow;
     char *error = expr_parse_microflow(flow_s, &symtab, &address_sets,
                                        ovntrace_lookup_port, dp, &uflow);
     if (error) {
-        ovs_fatal(0, "error parsing flow: %s", error);
+        char *s = xasprintf("error parsing flow: %s\n", error);
+        free(error);
+        return s;
     }
 
     uint32_t in_key = uflow.regs[MFF_LOG_INPORT - MFF_REG0];

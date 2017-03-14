@@ -1023,6 +1023,10 @@ netdev_dpdk_vhost_destruct(struct netdev *netdev)
     ovs_mutex_unlock(&dev->mutex);
     ovs_mutex_unlock(&dpdk_mutex);
 
+    if (!vhost_id[0]) {
+        goto out;
+    }
+
     if (dpdk_vhost_driver_unregister(dev, vhost_id)) {
         VLOG_ERR("%s: Unable to unregister vhost driver for socket '%s'.\n",
                  netdev->name, vhost_id);
@@ -1030,6 +1034,7 @@ netdev_dpdk_vhost_destruct(struct netdev *netdev)
         /* OVS server mode - remove this socket from list for deletion */
         fatal_signal_remove_file_to_unlink(vhost_id);
     }
+out:
     free(vhost_id);
 }
 
@@ -1063,7 +1068,7 @@ dpdk_set_rxq_config(struct netdev_dpdk *dev, const struct smap *args)
 {
     int new_n_rxq;
 
-    new_n_rxq = MAX(smap_get_int(args, "n_rxq", dev->requested_n_rxq), 1);
+    new_n_rxq = MAX(smap_get_int(args, "n_rxq", NR_QUEUE), 1);
     if (new_n_rxq != dev->requested_n_rxq) {
         dev->requested_n_rxq = new_n_rxq;
         netdev_request_reconfigure(&dev->up);
@@ -1927,8 +1932,7 @@ out:
     stats->tx_packets = rte_stats.opackets;
     stats->rx_bytes = rte_stats.ibytes;
     stats->tx_bytes = rte_stats.obytes;
-    /* DPDK counts imissed as errors, but count them here as dropped instead */
-    stats->rx_errors = rte_stats.ierrors - rte_stats.imissed;
+    stats->rx_errors = rte_stats.ierrors;
     stats->tx_errors = rte_stats.oerrors;
 
     rte_spinlock_lock(&dev->stats_lock);
@@ -1949,9 +1953,9 @@ out:
 static int
 netdev_dpdk_get_features(const struct netdev *netdev,
                          enum netdev_features *current,
-                         enum netdev_features *advertised OVS_UNUSED,
-                         enum netdev_features *supported OVS_UNUSED,
-                         enum netdev_features *peer OVS_UNUSED)
+                         enum netdev_features *advertised,
+                         enum netdev_features *supported,
+                         enum netdev_features *peer)
 {
     struct netdev_dpdk *dev = netdev_dpdk_cast(netdev);
     struct rte_eth_link link;
@@ -1988,6 +1992,8 @@ netdev_dpdk_get_features(const struct netdev *netdev,
     if (link.link_autoneg) {
         *current |= NETDEV_F_AUTONEG;
     }
+
+    *advertised = *supported = *peer = 0;
 
     return 0;
 }
@@ -3358,7 +3364,7 @@ get_dpdk_args(const struct smap *ovs_other_config, char ***argv,
     return i + extra_argc;
 }
 
-static char **dpdk_argv;
+static char **dpdk_argv, **dpdk_argv_release;
 static int dpdk_argc;
 
 static void
@@ -3366,9 +3372,10 @@ deferred_argv_release(void)
 {
     int result;
     for (result = 0; result < dpdk_argc; ++result) {
-        free(dpdk_argv[result]);
+        free(dpdk_argv_release[result]);
     }
 
+    free(dpdk_argv_release);
     free(dpdk_argv);
 }
 
@@ -3472,6 +3479,11 @@ dpdk_init__(const struct smap *ovs_other_config)
         }
         VLOG_INFO("%s", ds_cstr_ro(&eal_args));
         ds_destroy(&eal_args);
+    }
+
+    dpdk_argv_release = grow_argv(&dpdk_argv_release, 0, argc);
+    for (argc_tmp = 0; argc_tmp < argc; ++argc_tmp) {
+        dpdk_argv_release[argc_tmp] = argv[argc_tmp];
     }
 
     /* Make sure things are initialized ... */

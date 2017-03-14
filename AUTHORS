@@ -3,6 +3,7 @@ vSwitch source code or webpage version control repository.
 
 Aaron Conole            aconole@redhat.com
 Aaron Rosen             arosen@clemson.edu
+Alan Pevec              alan.pevec@redhat.com
 Alexander Duyck         alexander.h.duyck@redhat.com
 Alexandru Copot         alex.mihai.c@gmail.com
 Alexei Starovoitov      ast@plumgrid.com
@@ -165,6 +166,7 @@ Maxime Coquelin         maxime.coquelin@redhat.com
 Mehak Mahajan           mmahajan@nicira.com
 Michael Arnaldi         arnaldimichael@gmail.com
 Michal Weglicki         michalx.weglicki@intel.com
+Mika Vaisanen           mika.vaisanen@gmail.com
 Mijo Safradin           mijo@linux.vnet.ibm.com
 Minoru TAKAHASHI        takahashi.minoru7@gmail.com
 Murphy McCauley         murphy.mccauley@gmail.com
@@ -244,6 +246,7 @@ Thomas Lacroix          thomas.lacroix@citrix.com
 Timo Puha               timox.puha@intel.com
 Todd Deshane            deshantm@gmail.com
 Tom Everman             teverman@google.com
+Torgny Lindberg         torgny.lindberg@ericsson.com
 Tsvi Slonim             tsvi@toroki.com
 Tuan Nguyen             tuan.nguyen@veriksystems.com
 Tyler Coumbes           coumbes@gmail.com
@@ -257,6 +260,7 @@ William Fulton
 William Tu              u9012063@gmail.com
 YAMAMOTO Takashi        yamamoto@midokura.com
 Yasuhito Takamiya       yasuhito@gmail.com
+Yi-Hung Wei             yihung.wei@gmail.com
 Yin Lin                 linyi@vmware.com
 Yu Zhiguo               yuzg@cn.fujitsu.com
 Yuanhan Liu             yuanhan.liu@linux.intel.com
@@ -443,6 +447,7 @@ Srini Seetharaman       seethara@stanford.edu
 Sabyasachi Sengupta     Sabyasachi.Sengupta@alcatel-lucent.com
 Salvatore Cambria       salvatore.cambria@citrix.com
 Soner Sevinc            sevincs@vmware.com
+Stepan Andrushko        stepanx.andrushko@intel.com
 Stephen Hemminger       shemminger@vyatta.com
 Stuart Cardall          developer@it-offshore.co.uk
 Suganya Ramachandran    suganyar@vmware.com

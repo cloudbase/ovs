@@ -886,6 +886,8 @@ nl_sock_transact_multiple__(struct nl_sock *sock,
         }
 
         if (reply_len != 0) {
+            request_nlmsg = nl_msg_nlmsghdr(txn->request);
+
             if (reply_len < sizeof *reply_nlmsg) {
                 nl_sock_record_errors__(transactions, n, 0);
                 VLOG_DBG_RL(&rl, "insufficient length of reply %#"PRIu32
@@ -894,7 +896,6 @@ nl_sock_transact_multiple__(struct nl_sock *sock,
             }
 
             /* Validate the sequence number in the reply. */
-            request_nlmsg = nl_msg_nlmsghdr(txn->request);
             reply_nlmsg = (struct nlmsghdr *)reply_buf;
 
             if (request_nlmsg->nlmsg_seq != reply_nlmsg->nlmsg_seq) {
@@ -1698,7 +1699,9 @@ nl_transact(int protocol, const struct ofpbuf *request,
 
     error = nl_pool_alloc(protocol, &sock);
     if (error) {
-        *replyp = NULL;
+        if (replyp) {
+            *replyp = NULL;
+        }
         return error;
     }
 

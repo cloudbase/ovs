@@ -314,6 +314,11 @@ static int ovs_ct_helper(struct sk_buff *skb, u16 proto)
 	u8 nexthdr;
 	int err;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,6,0)
+	bool dst_set = false;
+	struct rtable rt = { .rt_flags = 0 };
+#endif
+
 	ct = nf_ct_get(skb, &ctinfo);
 	if (!ct || ctinfo == IP_CT_RELATED_REPLY)
 		return NF_ACCEPT;
@@ -352,42 +357,24 @@ static int ovs_ct_helper(struct sk_buff *skb, u16 proto)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,6,0)
 	/* Linux 4.5 and older depend on skb_dst being set when recalculating
 	 * checksums after NAT helper has mangled TCP or UDP packet payload.
-	 * This dependency is avoided when skb is CHECKSUM_PARTIAL or when UDP
-	 * has no checksum.
-	 *
-	 * The dependency is not triggered when the main NAT code updates
-	 * checksums after translating the IP header (address, port), so this
-	 * fix only needs to be executed on packets that are both being NATted
-	 * and that have a helper assigned.
+	 * skb_dst is cast to a rtable struct and the flags examined.
+	 * Forcing these flags to have RTCF_LOCAL not set ensures checksum mod
+	 * is carried out in the same way as kernel versions > 4.5
 	 */
-	if (ct->status & IPS_NAT_MASK && skb->ip_summed != CHECKSUM_PARTIAL) {
-		u8 ipproto = (proto == NFPROTO_IPV4)
-			? ip_hdr(skb)->protocol : nexthdr;
-		u16 offset = 0;
-
-		switch (ipproto) {
-		case IPPROTO_TCP:
-			offset = offsetof(struct tcphdr, check);
-			break;
-		case IPPROTO_UDP:
-			/* Skip if no csum. */
-			if (udp_hdr(skb)->check)
-				offset = offsetof(struct udphdr, check);
-			break;
-		}
-		if (offset) {
-			if (unlikely(!pskb_may_pull(skb, protoff + offset + 2)))
-				return NF_DROP;
-
-			skb->csum_start = skb_headroom(skb) + protoff;
-			skb->csum_offset = offset;
-			skb->ip_summed = CHECKSUM_PARTIAL;
-		}
+	if (ct->status & IPS_NAT_MASK && skb->ip_summed != CHECKSUM_PARTIAL
+	    && !skb_dst(skb)) {
+		dst_set = true;
+		skb_dst_set(skb, &rt.dst);
 	}
 #endif
 	err = helper->help(skb, protoff, ct, ctinfo);
 	if (err != NF_ACCEPT)
 		return err;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,6,0)
+	if (dst_set)
+		skb_dst_set(skb, NULL);
+#endif
 
 	/* Adjust seqs after helper.  This is needed due to some helpers (e.g.,
 	 * FTP with NAT) adusting the TCP payload size when mangling IP
@@ -424,8 +411,11 @@ static int handle_fragments(struct net *net, struct sw_flow_key *key,
 		skb_orphan(skb);
 		memset(IP6CB(skb), 0, sizeof(struct inet6_skb_parm));
 		err = nf_ct_frag6_gather(net, skb, user);
-		if (err)
+		if (err) {
+			if (err != -EINPROGRESS)
+				kfree_skb(skb);
 			return err;
+		}
 
 		key->ip.proto = ipv6_hdr(skb)->nexthdr;
 		ovs_cb.dp_cb.mru = IP6CB(skb)->frag_max_size;
@@ -565,7 +555,7 @@ static int ovs_ct_nat_execute(struct sk_buff *skb, struct nf_conn *ct,
 	int hooknum, nh_off, err = NF_ACCEPT;
 
 	nh_off = skb_network_offset(skb);
-	skb_pull(skb, nh_off);
+	skb_pull_rcsum(skb, nh_off);
 
 	/* See HOOK2MANIP(). */
 	if (maniptype == NF_NAT_MANIP_SRC)
@@ -630,6 +620,7 @@ static int ovs_ct_nat_execute(struct sk_buff *skb, struct nf_conn *ct,
 	err = nf_nat_packet(ct, ctinfo, hooknum, skb);
 push:
 	skb_push(skb, nh_off);
+	skb_postpush_rcsum(skb, skb->data, nh_off);
 
 	return err;
 }
@@ -941,7 +932,7 @@ int ovs_ct_execute(struct net *net, struct sk_buff *skb,
 
 	/* The conntrack module expects to be working at L3. */
 	nh_ofs = skb_network_offset(skb);
-	skb_pull(skb, nh_ofs);
+	skb_pull_rcsum(skb, nh_ofs);
 
 	if (key->ip.frag != OVS_FRAG_TYPE_NONE) {
 		err = handle_fragments(net, key, info->zone.id, skb);
@@ -955,6 +946,7 @@ int ovs_ct_execute(struct net *net, struct sk_buff *skb,
 		err = ovs_ct_lookup(net, key, info, skb);
 
 	skb_push(skb, nh_ofs);
+	skb_postpush_rcsum(skb, skb->data, nh_ofs);
 	if (err)
 		kfree_skb(skb);
 	return err;

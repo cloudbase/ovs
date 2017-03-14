@@ -1890,7 +1890,8 @@ lsp_is_up(const struct nbrec_logical_switch_port *lsp)
 
 static bool
 build_dhcpv4_action(struct ovn_port *op, ovs_be32 offer_ip,
-                    struct ds *options_action, struct ds *response_action)
+                    struct ds *options_action, struct ds *response_action,
+                    struct ds *ipv4_addr_match)
 {
     if (!op->nbsp->dhcpv4_options) {
         /* CMS has disabled native DHCPv4 for this lport. */
@@ -1940,10 +1941,15 @@ build_dhcpv4_action(struct ovn_port *op, ovs_be32 offer_ip,
     ds_put_format(options_action,
                   REGBIT_DHCP_OPTS_RESULT" = put_dhcp_opts(offerip = "
                   IP_FMT", ", IP_ARGS(offer_ip));
-    struct smap_node *node;
-    SMAP_FOR_EACH(node, &dhcpv4_options) {
+
+    /* We're not using SMAP_FOR_EACH because we want a consistent order of the
+     * options on different architectures (big or little endian, SSE4.2) */
+    const struct smap_node **sorted_opts = smap_sort(&dhcpv4_options);
+    for (size_t i = 0; i < smap_count(&dhcpv4_options); i++) {
+        const struct smap_node *node = sorted_opts[i];
         ds_put_format(options_action, "%s = %s, ", node->key, node->value);
     }
+    free(sorted_opts);
 
     ds_chomp(options_action, ' ');
     ds_chomp(options_action, ',');
@@ -1955,6 +1961,9 @@ build_dhcpv4_action(struct ovn_port *op, ovs_be32 offer_ip,
                   "output;",
                   server_mac, IP_ARGS(offer_ip), server_ip);
 
+    ds_put_format(ipv4_addr_match,
+                  "ip4.src == "IP_FMT" && ip4.dst == {%s, 255.255.255.255}",
+                  IP_ARGS(offer_ip), server_ip);
     smap_destroy(&dhcpv4_options);
     return true;
 }
@@ -1984,9 +1993,9 @@ build_dhcpv6_action(struct ovn_port *op, struct in6_addr *offer_ip,
         return false;
     }
 
+    const struct smap *options_map = &op->nbsp->dhcpv6_options->options;
     /* "server_id" should be the MAC address. */
-    const char *server_mac = smap_get(&op->nbsp->dhcpv6_options->options,
-                                      "server_id");
+    const char *server_mac = smap_get(options_map, "server_id");
     struct eth_addr ea;
     if (!server_mac || !eth_addr_from_string(server_mac, &ea)) {
         /* "server_id" should be present in the dhcpv6_options. */
@@ -2009,10 +2018,18 @@ build_dhcpv6_action(struct ovn_port *op, struct in6_addr *offer_ip,
     ds_put_format(options_action,
                   REGBIT_DHCP_OPTS_RESULT" = put_dhcpv6_opts(ia_addr = %s, ",
                   ia_addr);
-    struct smap_node *node;
-    SMAP_FOR_EACH (node, &op->nbsp->dhcpv6_options->options) {
-        ds_put_format(options_action, "%s = %s, ", node->key, node->value);
+
+    /* We're not using SMAP_FOR_EACH because we want a consistent order of the
+     * options on different architectures (big or little endian, SSE4.2) */
+    const struct smap_node **sorted_opts = smap_sort(options_map);
+    for (size_t i = 0; i < smap_count(options_map); i++) {
+        const struct smap_node *node = sorted_opts[i];
+        if (strcmp(node->key, "dhcpv6_stateless")) {
+            ds_put_format(options_action, "%s = %s, ", node->key, node->value);
+        }
     }
+    free(sorted_opts);
+
     ds_chomp(options_action, ' ');
     ds_chomp(options_action, ',');
     ds_put_cstr(options_action, "); next;");
@@ -2670,13 +2687,14 @@ build_lswitch_flows(struct hmap *datapaths, struct hmap *ports,
     }
 
     /* Ingress table 9: ARP/ND responder, skip requests coming from localnet
-     * ports. (priority 100). */
+     * and vtep ports. (priority 100). */
     HMAP_FOR_EACH (op, key_node, ports) {
         if (!op->nbsp) {
             continue;
         }
 
-        if (!strcmp(op->nbsp->type, "localnet")) {
+        if ((!strcmp(op->nbsp->type, "localnet")) ||
+            (!strcmp(op->nbsp->type, "vtep"))) {
             ds_clear(&match);
             ds_put_format(&match, "inport == %s", op->json_key);
             ovn_lflow_add(lflows, op->od, S_SWITCH_IN_ARP_ND_RSP, 100,
@@ -2810,9 +2828,10 @@ build_lswitch_flows(struct hmap *datapaths, struct hmap *ports,
             for (size_t j = 0; j < op->lsp_addrs[i].n_ipv4_addrs; j++) {
                 struct ds options_action = DS_EMPTY_INITIALIZER;
                 struct ds response_action = DS_EMPTY_INITIALIZER;
+                struct ds ipv4_addr_match = DS_EMPTY_INITIALIZER;
                 if (build_dhcpv4_action(
                         op, op->lsp_addrs[i].ipv4_addrs[j].addr,
-                        &options_action, &response_action)) {
+                        &options_action, &response_action, &ipv4_addr_match)) {
                     struct ds match = DS_EMPTY_INITIALIZER;
                     ds_put_format(
                         &match, "inport == %s && eth.src == %s && "
@@ -2823,15 +2842,39 @@ build_lswitch_flows(struct hmap *datapaths, struct hmap *ports,
                     ovn_lflow_add(lflows, op->od, S_SWITCH_IN_DHCP_OPTIONS,
                                   100, ds_cstr(&match),
                                   ds_cstr(&options_action));
+                    ds_clear(&match);
+                    /* Allow ip4.src = OFFER_IP and
+                     * ip4.dst = {SERVER_IP, 255.255.255.255} for the below
+                     * cases
+                     *  -  When the client wants to renew the IP by sending
+                     *     the DHCPREQUEST to the server ip.
+                     *  -  When the client wants to renew the IP by
+                     *     broadcasting the DHCPREQUEST.
+                     */
+                    ds_put_format(
+                        &match, "inport == %s && eth.src == %s && "
+                        "%s && udp.src == 68 && udp.dst == 67", op->json_key,
+                        op->lsp_addrs[i].ea_s, ds_cstr(&ipv4_addr_match));
+
+                    ovn_lflow_add(lflows, op->od, S_SWITCH_IN_DHCP_OPTIONS,
+                                  100, ds_cstr(&match),
+                                  ds_cstr(&options_action));
+                    ds_clear(&match);
+
                     /* If REGBIT_DHCP_OPTS_RESULT is set, it means the
-                     * put_dhcp_opts action  is successful */
-                    ds_put_cstr(&match, " && "REGBIT_DHCP_OPTS_RESULT);
+                     * put_dhcp_opts action  is successful. */
+                    ds_put_format(
+                        &match, "inport == %s && eth.src == %s && "
+                        "ip4 && udp.src == 68 && udp.dst == 67"
+                        " && "REGBIT_DHCP_OPTS_RESULT, op->json_key,
+                        op->lsp_addrs[i].ea_s);
                     ovn_lflow_add(lflows, op->od, S_SWITCH_IN_DHCP_RESPONSE,
                                   100, ds_cstr(&match),
                                   ds_cstr(&response_action));
                     ds_destroy(&match);
                     ds_destroy(&options_action);
                     ds_destroy(&response_action);
+                    ds_destroy(&ipv4_addr_match);
                     break;
                 }
             }
