@@ -8,6 +8,8 @@
 
 ovs-windows-installer/Binaries.wxs
 ovs-windows-installer/Symbols.wxs
+ovs-windows-installer/OVN_Binaries.wxs
+ovs-windows-installer/OVN_Symbols.wxs
 
 # Build results
 [Dd]ebug/

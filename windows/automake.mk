@@ -19,8 +19,16 @@ windows_installer: all
 	cp -f $(top_srcdir)/vswitchd/vswitch.ovsschema windows/ovs-windows-installer/Services/vswitch.ovsschema
 	cp -f $(top_srcdir)/vswitchd/ovs-vswitchd.exe windows/ovs-windows-installer/Services/ovs-vswitchd.exe
 	cp -f $(top_srcdir)/ovsdb/ovsdb-server.exe windows/ovs-windows-installer/Services/ovsdb-server.exe
+	cp -f $(top_srcdir)/ovn/ovn-nb.ovsschema windows/ovs-windows-installer/OVN_Services/ovn-nb.ovsschema
+	cp -f $(top_srcdir)/ovn/ovn-sb.ovsschema windows/ovs-windows-installer/OVN_Services/ovn-sb.ovsschema
+	cp -f $(top_srcdir)/ovn/controller/ovn-controller.exe windows/ovs-windows-installer/OVN_Services/ovn-controller.exe
+	cp -f $(top_srcdir)/ovn/controller/ovn-controller.pdb windows/ovs-windows-installer/OVN_Symbols/ovn-controller.pdb
+	cp -f $(top_srcdir)/ovn/northd/ovn-northd.exe windows/ovs-windows-installer/OVN_Services/ovn-northd.exe
+	cp -f $(top_srcdir)/ovn/northd/ovn-northd.pdb windows/ovs-windows-installer/OVN_Symbols/ovn-northd.pdb
 	cp -f $(top_srcdir)/utilities/*.exe windows/ovs-windows-installer/Binaries/
 	cp -f $(top_srcdir)/utilities/*.pdb windows/ovs-windows-installer/Symbols/
+	cp -f $(top_srcdir)/ovn/utilities/*.exe windows/ovs-windows-installer/OVN_Binaries/
+	cp -f $(top_srcdir)/ovn/utilities/*.pdb windows/ovs-windows-installer/OVN_Symbols/
 	cp -f $(top_srcdir)/ovsdb/ovsdb-client.exe windows/ovs-windows-installer/Binaries/ovsdb-client.exe
 	cp -f $(top_srcdir)/ovsdb/ovsdb-tool.exe windows/ovs-windows-installer/Binaries/ovsdb-tool.exe
 	cp -f $(top_srcdir)/ovsdb/ovsdb-client.pdb windows/ovs-windows-installer/Symbols/
