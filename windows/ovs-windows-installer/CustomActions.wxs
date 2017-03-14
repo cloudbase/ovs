@@ -56,6 +56,14 @@
               BinaryKey="OVSActions"
               JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
 
+    <CustomAction Id="RestartOvnControllerService_Prop" Return="check" Property="ChangeOvnControllerService"
+                      Value="ovn-controller||Restart" />
+    <CustomAction Id="StartOvnControllerService_Prop" Return="check" Property="ChangeOvnControllerService"
+                  Value="ovn-controller||Start" />
+    <CustomAction Id="ChangeOvnControllerService"
+              BinaryKey="OVSActions"
+              JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
+
     <CustomAction Id="RestartOvsVSwitchdService_Prop" Return="check" Property="ChangeOvsVSwitchdService"
                   Value="ovs-vswitchd||Restart" />
     <CustomAction Id="StartOvsVSwitchdService_Prop" Return="check" Property="ChangeOvsVSwitchdService"

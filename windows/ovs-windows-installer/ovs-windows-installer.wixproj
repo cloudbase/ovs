@@ -20,7 +20,7 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
-    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;Version=$(Version)</DefineConstants>
+    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;OVNBinariesPath=OVN_Binaries;OVNSymbolsPath=OVN_Symbols;Version=$(Version)</DefineConstants>
     <SuppressAllWarnings>False</SuppressAllWarnings>
     <Pedantic>False</Pedantic>
     <SuppressSpecificWarnings>1076;</SuppressSpecificWarnings>
@@ -31,7 +31,7 @@
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;Version=$(Version)</DefineConstants>
+    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;OVNBinariesPath=OVN_Binaries;OVNSymbolsPath=OVN_Symbols;Version=$(Version)</DefineConstants>
     <SuppressAllWarnings>False</SuppressAllWarnings>
     <Pedantic>False</Pedantic>
     <SuppressSpecificWarnings>1076;</SuppressSpecificWarnings>
@@ -44,7 +44,7 @@
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;Version=$(Version)</DefineConstants>
+    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;OVNBinariesPath=OVN_Binaries;OVNSymbolsPath=OVN_Symbols;Version=$(Version)</DefineConstants>
     <SuppressAllWarnings>False</SuppressAllWarnings>
     <Pedantic>False</Pedantic>
     <SuppressSpecificWarnings>1076;</SuppressSpecificWarnings>
@@ -57,7 +57,7 @@
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;Version=$(Version)</DefineConstants>
+    <DefineConstants>BinariesPath=Binaries;SymbolsPath=Symbols;OVNBinariesPath=OVN_Binaries;OVNSymbolsPath=OVN_Symbols;Version=$(Version)</DefineConstants>
     <SuppressAllWarnings>False</SuppressAllWarnings>
     <Pedantic>False</Pedantic>
     <SuppressSpecificWarnings>1076;</SuppressSpecificWarnings>
@@ -71,6 +71,8 @@
     <Compile Include="Dialogs\MyTroubleshootDialog.wxs" />
     <Compile Include="Dialogs\UserFinishDialog.wxs" />
     <Compile Include="Dialogs\BeginningDialog.wxs" />
+    <Compile Include="OVN_Binaries.wxs" />
+    <Compile Include="OVN_Symbols.wxs" />
     <Compile Include="Product.wxs" />
     <Compile Include="Symbols.wxs" />
     <Compile Include="UI.wxs" />
@@ -81,12 +83,16 @@
     <Folder Include="images\" />
     <Folder Include="Actions" />
     <Folder Include="Driver" />
+    <Folder Include="OVN_Binaries" />
+    <Folder Include="OVN_Services" />
+    <Folder Include="OVN_Symbols" />
     <Folder Include="Services" />
     <Folder Include="Redist" />
     <Folder Include="Symbols" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Actions\OVSActions.js" />
+    <Content Include="Exclude.xsl" />
     <Content Include="images\bannrbmp.bmp" />
     <Content Include="images\dlgbmp.bmp" />
     <Content Include="License.rtf" />
@@ -103,9 +109,13 @@
   </ItemGroup>
   <Import Project="$(WixTargetsPath)" />
   <Target Name="BeforeBuild">
-    <HeatDirectory DirectoryRefId="BINARIESDIR" OutputFile="Binaries.wxs" Directory="Binaries" ComponentGroupName="BinariesComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.BinariesPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true">
+    <HeatDirectory DirectoryRefId="BINARIESDIR" OutputFile="Binaries.wxs" Directory="Binaries" ComponentGroupName="BinariesComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.BinariesPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true"  Transforms="Exclude.xsl">
     </HeatDirectory>
-    <HeatDirectory DirectoryRefId="SYMBOLSDIR" OutputFile="Symbols.wxs" Directory="Symbols" ComponentGroupName="SymbolsComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.SymbolsPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true">
+    <HeatDirectory DirectoryRefId="SYMBOLSDIR" OutputFile="Symbols.wxs" Directory="Symbols" ComponentGroupName="SymbolsComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.SymbolsPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true"  Transforms="Exclude.xsl">
+    </HeatDirectory>
+    <HeatDirectory DirectoryRefId="OVNBINARIESDIR" OutputFile="OVN_Binaries.wxs" Directory="OVN_Binaries" ComponentGroupName="OVNBinariesComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.OVNBinariesPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true" Transforms="Exclude.xsl">
+    </HeatDirectory>
+    <HeatDirectory DirectoryRefId="OVNSYMBOLSDIR" OutputFile="OVN_Symbols.wxs" Directory="OVN_Symbols" ComponentGroupName="OVNSymbolsComponentGroup" ToolPath="$(WixToolPath)" PreprocessorVariable="var.OVNSymbolsPath" GenerateGuidsNow="true" SuppressCom="true" SuppressRegistry="true" KeepEmptyDirectories="true" SuppressRootDirectory="true" Transforms="Exclude.xsl">
     </HeatDirectory>
   </Target>
   <!--

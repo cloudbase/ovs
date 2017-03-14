@@ -59,6 +59,16 @@
       <ComponentRef Id="OpenvSwitchPSModule" />
     </Feature>
 
+    <Feature Id="OVNController" Title="OVN utilities and controller" Level="1" Absent="allow" InstallDefault="local" TypicalDefault="install" AllowAdvertise="no"
+             Description="Installs the Open Virtual Network utilities and adds a service for ovn-controller."
+             ConfigurableDirectory="INSTALLDIR" Display="expand">
+      <ComponentGroupRef Id="OVNBinariesComponentGroup" />
+      <ComponentGroupRef Id="OVNSymbolsComponentGroup" />
+      <ComponentRef Id="OvnControllerService" />
+      <ComponentRef Id="OpenvSwitchEnvVars" />
+    </Feature>
+
+
     <UIRef Id="MyWixUI_FeatureTree" />
     <UIRef Id="WixUI_ErrorProgressText" />
 
@@ -88,6 +98,10 @@
       <Custom Action="StartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OpenvSwitch = 3)]]></Custom>
       <Custom Action="RestartOvsVSwitchdService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
       <Custom Action="ChangeOvsVSwitchdService" Before="InstallFinalize"><![CDATA[REMOVE <> "ALL" AND (&OpenvSwitch = 3)]]></Custom>
+
+      <Custom Action="StartOvnControllerService_Prop" After="CostFinalize"><![CDATA[NOT Installed AND (&OVNController = 3)]]></Custom>
+      <Custom Action="RestartOvnControllerService_Prop" After="CostFinalize"><![CDATA[Installed AND REMOVE <> "ALL" AND (&OVNController = 3)]]></Custom>
+      <Custom Action="ChangeOvnControllerService" Before="InstallFinalize"><![CDATA[REMOVE <> "ALL" AND (&OVNController = 3)]]></Custom>
     </InstallExecuteSequence>
   </Product>
 
@@ -107,6 +121,14 @@
 
     <DirectoryRef Id="INSTALLDIR">
       <Directory Id="BINARIESDIR" Name="bin" />
+    </DirectoryRef>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Directory Id="OVNBINARIESDIR" Name="bin" />
+    </DirectoryRef>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Directory Id="OVNSYMBOLSDIR" Name="symbols" />
     </DirectoryRef>
 
     <DirectoryRef Id="INSTALLDIR">
@@ -246,6 +268,38 @@
           <File Id='win81_ovsext.cat' Name='ovsext.cat' DiskId='1' Source='Driver\Win8.1\ovsext.cat' Checksum='yes' />
       </Component>
     </DirectoryRef>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="OvnControllerService" Directory="BINARIESDIR" Guid="{A2ED5532-B2D7-4CD3-8ADE-B525A8BEB957}">
+      <File Id="ovncontroller.exe" Source="OVN_Services\ovn-controller.exe" Checksum="yes" />
+      <ServiceInstall
+                Arguments='--log-file="[LOGSDIR]ovn-controller.log" --pidfile --service --service-monitor'
+                Id="OvnControllerServiceServiceInstaller"
+                Type="ownProcess"
+                Vital="yes"
+                Name="ovn-controller"
+                DisplayName="OVN Controller"
+                Description="OVN Controller"
+                Start="auto"
+                Account="LocalSystem"
+                ErrorControl="ignore"
+                Interactive="no">
+      </ServiceInstall>
+
+      <ServiceControl
+       Id="OvnControllerServiceStartService"
+       Stop="both"
+       Remove="uninstall"
+       Name="ovn-controller"
+       Wait="yes" />
+      <util:ServiceConfig
+        ServiceName="ovn-controller"
+        FirstFailureActionType="restart"
+        SecondFailureActionType="restart"
+        ThirdFailureActionType="restart"
+        RestartServiceDelayInSeconds="1" />
+    </Component>
   </Fragment>
 
   <Fragment>
