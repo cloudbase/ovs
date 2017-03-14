@@ -34,8 +34,8 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="mszip" />
 
-    <Feature Id="OpenvSwitchCLI" Title="Open vSwitch CLI" Level="1" Absent="disallow" InstallDefault="local" TypicalDefault="install" AllowAdvertise="no"
-             Description="Installs the Open vSwitch command line tools."
+    <Feature Id="OpenvSwitch" Title="Open vSwitch" Level="1" Absent="allow" InstallDefault="local" TypicalDefault="install" AllowAdvertise="no"
+             Description="Installs and configures the Open vSwitch services togheter with the command line tools."
              ConfigurableDirectory="INSTALLDIR" Display="expand">
       <ComponentGroupRef Id="BinariesComponentGroup" />
       <ComponentGroupRef Id="SymbolsComponentGroup" />
