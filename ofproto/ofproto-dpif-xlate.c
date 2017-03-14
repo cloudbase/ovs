@@ -1815,15 +1815,23 @@ output_normal(struct xlate_ctx *ctx, const struct xbundle *out_xbundle,
         struct flow_wildcards *wc = ctx->wc;
         struct ofport_dpif *ofport;
 
-        if (ctx->xbridge->support.odp.recirc) {
-            use_recirc = bond_may_recirc(
-                out_xbundle->bond, &xr.recirc_id, &xr.hash_basis);
-
-            if (use_recirc) {
-                /* Only TCP mode uses recirculation. */
+        if (ctx->xbridge->support.odp.recirc
+            && bond_may_recirc(out_xbundle->bond, NULL, NULL)) {
+            /* To avoid unnecessary locking, bond_may_recirc() is first
+             * called outside of the 'rwlock'. After acquiring the lock,
+             * bond_update_post_recirc_rules() will check again to make
+             * sure bond configuration has not been changed.
+             *
+             * In case recirculation is not actually in use, 'xr.recirc_id'
+             * will be set to '0', Since a valid 'recirc_id' can
+             * not be zero.  */
+            bond_update_post_recirc_rules(out_xbundle->bond,
+                                          &xr.recirc_id,
+                                          &xr.hash_basis);
+            if (xr.recirc_id) {
+                /* Use recirculation instead of output. */
+                use_recirc = true;
                 xr.hash_alg = OVS_HASH_ALG_L4;
-                bond_update_post_recirc_rules(out_xbundle->bond, false);
-
                 /* Recirculation does not require unmasking hash fields. */
                 wc = NULL;
             }
@@ -2239,11 +2247,14 @@ xlate_normal_mcast_send_mrouters(struct xlate_ctx *ctx,
     xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
     LIST_FOR_EACH(mrouter, mrouter_node, &ms->mrouter_lru) {
         mcast_xbundle = xbundle_lookup(xcfg, mrouter->port);
-        if (mcast_xbundle && mcast_xbundle != in_xbundle) {
+        if (mcast_xbundle && mcast_xbundle != in_xbundle
+            && mrouter->vlan == vlan) {
             xlate_report(ctx, "forwarding to mcast router port");
             output_normal(ctx, mcast_xbundle, vlan);
         } else if (!mcast_xbundle) {
             xlate_report(ctx, "mcast router port is unknown, dropping");
+        } else if (mrouter->vlan != vlan) {
+            xlate_report(ctx, "mcast router is on another vlan, dropping");
         } else {
             xlate_report(ctx, "mcast router port is input port, dropping");
         }
@@ -2949,6 +2960,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                 }
                 return;
             }
+        } else if ((xport->cfm && cfm_should_process_flow(xport->cfm, flow, wc))
+                   || (xport->bfd && bfd_should_process_flow(xport->bfd, flow,
+                                                             wc))) {
+            /* Pass; STP should not block link health detection. */
         } else if (!xport_stp_forward_state(xport) ||
                    !xport_rstp_forward_state(xport)) {
             if (ctx->xbridge->stp != NULL) {
@@ -3740,7 +3755,8 @@ compose_mpls_push_action(struct xlate_ctx *ctx, struct ofpact_push_mpls *mpls)
         return;
     }
 
-    flow_push_mpls(flow, n, mpls->ethertype, ctx->wc);
+    /* Update flow's MPLS stack, and clear L3/4 fields to mark them invalid. */
+    flow_push_mpls(flow, n, mpls->ethertype, ctx->wc, true);
 }
 
 static void
