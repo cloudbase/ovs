@@ -953,13 +953,18 @@ dpif_netlink_port_del__(struct dpif_netlink *dpif, odp_port_t port_no)
     vport.port_no = port_no;
 #ifdef _WIN32
     struct dpif_port temp_dpif_port;
-    dpif_netlink_port_query__(dpif, port_no, NULL, &temp_dpif_port);
+
+    error = dpif_netlink_port_query__(dpif, port_no, NULL, &temp_dpif_port);
+    if (error) {
+        return error;
+    }
     if (!strcmp(temp_dpif_port.type, "internal")) {
         if (!delete_wmi_port(temp_dpif_port.name)){
             VLOG_ERR("Could not delete wmi port with name: %s",
                      temp_dpif_port.name);
         };
     }
+    dpif_port_destroy(&temp_dpif_port);
 #endif
     error = dpif_netlink_vport_transact(&vport, NULL, NULL);
 
