@@ -1599,7 +1599,7 @@ OvsUpdateAddressAndPort(OvsForwardingContext *ovsFwdCtx,
 
     NET_BUFFER_LIST_INFO(curNbl,
                          TcpIpChecksumNetBufferListInfo) = 0;
- 
+
     return NDIS_STATUS_SUCCESS;
 }
 
