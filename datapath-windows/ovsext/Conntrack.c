@@ -15,6 +15,7 @@
  */
 
 #include "Conntrack.h"
+#include "IpFragment.h"
 #include "Jhash.h"
 #include "PacketParser.h"
 #include "Event.h"
@@ -339,13 +340,20 @@ OvsCtEntryExpired(POVS_CT_ENTRY entry)
 }
 
 static __inline NDIS_STATUS
-OvsDetectCtPacket(OvsFlowKey *key)
+OvsDetectCtPacket(OvsForwardingContext *fwdCtx,
+                  OvsFlowKey *key,
+                  PNET_BUFFER_LIST *newNbl)
 {
     /* Currently we support only Unfragmented TCP packets */
     switch (ntohs(key->l2.dlType)) {
     case ETH_TYPE_IPV4:
         if (key->ipKey.nwFrag != OVS_FRAG_TYPE_NONE) {
-            return NDIS_STATUS_NOT_SUPPORTED;
+            return OvsProcessIpv4Fragment(fwdCtx->switchContext,
+                                          &fwdCtx->curNbl,
+                                          fwdCtx->completionList,
+                                          fwdCtx->fwdDetail->SourcePortId,
+                                          key->tunKey.tunnelId,
+                                          newNbl);
         }
         if (key->ipKey.nwProto == IPPROTO_TCP
             || key->ipKey.nwProto == IPPROTO_UDP
@@ -755,6 +763,7 @@ OvsCtExecute_(OvsForwardingContext *fwdCtx,
  *---------------------------------------------------------------------------
  * OvsExecuteConntrackAction
  *     Executes Conntrack actions XXX - Add more
+ *     For the Ipv4 fragments, consume the orginal fragment NBL
  *---------------------------------------------------------------------------
  */
 NDIS_STATUS
@@ -768,12 +777,14 @@ OvsExecuteConntrackAction(OvsForwardingContext *fwdCtx,
     MD_MARK *mark = NULL;
     MD_LABELS *labels = NULL;
     PCHAR helper = NULL;
+    PNET_BUFFER_LIST curNbl = fwdCtx->curNbl;
     NAT_ACTION_INFO natActionInfo;
     OVS_PACKET_HDR_INFO *layers = &fwdCtx->layers;
     NDIS_STATUS status;
 
     memset(&natActionInfo, 0, sizeof natActionInfo);
-    status = OvsDetectCtPacket(key);
+    PNET_BUFFER_LIST newNbl = NULL;
+    status = OvsDetectCtPacket(fwdCtx, key, &newNbl);
     if (status != NDIS_STATUS_SUCCESS) {
         return status;
     }
@@ -867,7 +878,7 @@ OvsExecuteConntrackAction(OvsForwardingContext *fwdCtx,
             return NDIS_STATUS_NOT_SUPPORTED;
         }
     }
-
+    fwdCtx->curNbl = newNbl != NULL ? newNbl : curNbl;
     status = OvsCtExecute_(fwdCtx, key, layers,
                            commit, zone, mark, labels, helper, &natActionInfo);
     return status;
