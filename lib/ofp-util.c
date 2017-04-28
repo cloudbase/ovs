@@ -3398,7 +3398,7 @@ decode_nx_packet_in2(const struct ofp_header *oh, bool loose,
 
         case NXPINT_METADATA:
             error = oxm_decode_match(payload.msg, ofpbuf_msgsize(&payload),
-                                     tun_table, &pin->flow_metadata);
+                                     loose, tun_table, &pin->flow_metadata);
             break;
 
         case NXPINT_USERDATA:
