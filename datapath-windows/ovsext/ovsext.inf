@@ -80,5 +80,5 @@ DelService=OVSExt,0x200
 
 [Strings]
 OVS = "Open vSwitch"
-OVSExt_Desc = "Open vSwitch Extension"
-OVSExt_HelpText = "Open vSwitch forwarding switch extension"
+OVSExt_Desc = "Cloudbase Open vSwitch Extension"
+OVSExt_HelpText = "Cloudbase Open vSwitch forwarding switch extension"
