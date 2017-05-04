@@ -1586,7 +1586,7 @@ ukey_create_from_dpif_flow(const struct udpif *udpif,
     }
 
     dump_seq = seq_read(udpif->dump_seq);
-    reval_seq = seq_read(udpif->reval_seq);
+    reval_seq = seq_read(udpif->reval_seq) - 1; /* Ensure revalidation. */
     ofpbuf_use_const(&actions, &flow->actions, flow->actions_len);
     *ukey = ukey_create__(flow->key, flow->key_len,
                           flow->mask, flow->mask_len, flow->ufid_present,
@@ -2182,8 +2182,8 @@ push_dp_ops(struct udpif *udpif, struct ukey_op *ops, size_t n_ops)
             if (error) {
                 static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
 
-                VLOG_WARN_RL(&rl, "xlate_actions failed (%s)!",
-                             xlate_strerror(error));
+                VLOG_WARN_RL(&rl, "xlate_key failed (%s)!",
+                             ovs_strerror(error));
             } else {
                 xlate_out_uninit(&ctx.xout);
                 if (netflow) {
