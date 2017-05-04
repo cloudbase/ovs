@@ -150,7 +150,7 @@ typedef union OvsIPv4TunnelKey {
             uint32_t pad;
             struct {
                 ovs_be16 dst_port;
-                uint16_t flow_hash;
+                ovs_be16 src_port;
             };
         };
     };

@@ -307,7 +307,8 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
 
         /* L4 header */
         RtlZeroMemory(outerTcpHdr, sizeof *outerTcpHdr);
-        outerTcpHdr->source = htons(tunKey->flow_hash | 32768);
+        outerTcpHdr->source = tunKey->src_port ? tunKey->src_port :
+            htons(tunKey->src_port | MAXINT16);
         outerTcpHdr->dest = tunKey->dst_port ? tunKey->dst_port:
                                                htons(vportStt->dstPort);
         outerTcpHdr->seq = htonl((STT_HDR_LEN + innerFrameLen) <<

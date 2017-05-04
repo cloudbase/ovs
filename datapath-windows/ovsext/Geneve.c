@@ -200,7 +200,8 @@ NDIS_STATUS OvsEncapGeneve(POVS_VPORT_ENTRY vport,
 
         /* UDP header */
         udpHdr = (UDPHdr *)((PCHAR)ipHdr + sizeof *ipHdr);
-        udpHdr->source = htons(tunKey->flow_hash | MAXINT16);
+        udpHdr->source = tunKey->src_port ? tunKey->src_port :
+            htons(tunKey->src_port | MAXINT16);
         udpHdr->dest = tunKey->dst_port ? tunKey->dst_port :
                                           htons(vportGeneve->dstPort);
         udpHdr->len = htons(NET_BUFFER_DATA_LENGTH(curNb) - headRoom +

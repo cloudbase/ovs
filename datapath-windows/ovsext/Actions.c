@@ -705,12 +705,7 @@ OvsTunnelPortRx(OvsForwardingContext *ovsFwdCtx)
     POVS_VPORT_ENTRY tunnelRxVport = ovsFwdCtx->tunnelRxNic;
     PCWSTR dropReason = L"OVS-dropped due to new decap packet";
 
-    if (OvsValidateIPChecksum(ovsFwdCtx->curNbl, &ovsFwdCtx->layers)
-            != NDIS_STATUS_SUCCESS) {
-        ovsActionStats.failedChecksum++;
-        OVS_LOG_INFO("Packet dropped due to IP checksum failure.");
-        goto dropNbl;
-    }
+    /* XXX Validate IP checksum here */
 
     /*
      * Decap port functions should return a new NBL if it was copied, and
@@ -1095,15 +1090,8 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
 static __inline NDIS_STATUS
 OvsPopVlanInPktBuf(OvsForwardingContext *ovsFwdCtx)
 {
-    /*
-     * Declare a dummy vlanTag structure since we need to compute the size
-     * of shiftLength. The NDIS one is a unionized structure.
-     */
-    NDIS_PACKET_8021Q_INFO vlanTag = {0};
-    UINT32 shiftLength = sizeof(vlanTag.TagHeader);
-    UINT32 shiftOffset = sizeof(DL_EUI48) + sizeof(DL_EUI48);
-
-    return OvsPopFieldInPacketBuf(ovsFwdCtx, shiftOffset, shiftLength, NULL);
+    return OvsPopFieldInPacketBuf(ovsFwdCtx, 2 * ETH_ALEN,
+                                  ETH_LENGTH_OF_VLAN_HEADER, NULL);
 }
 
 
@@ -1434,11 +1422,10 @@ OvsUpdateIPv4Header(OvsForwardingContext *ovsFwdCtx,
 
     ASSERT(layers->value != 0);
 
-    if (layers->isTcp || layers->isUdp) {
-        hdrSize = layers->l4Offset +
-                  layers->isTcp ? sizeof (*tcpHdr) : sizeof (*udpHdr);
+    if (layers->isTcp || layers->isUdp || layers->isSctp) {
+        hdrSize = layers->l7Offset;
     } else {
-        hdrSize = layers->l3Offset + sizeof (*ipHdr);
+        hdrSize = layers->l4Offset;
     }
 
     bufferStart = OvsGetHeaderBySize(ovsFwdCtx, hdrSize);
@@ -1547,7 +1534,8 @@ OvsExecuteSetAction(OvsForwardingContext *ovsFwdCtx,
     case OVS_KEY_ATTR_TUNNEL:
     {
         OvsIPv4TunnelKey tunKey;
-        tunKey.flow_hash = (uint16)(hash ? *hash : OvsHashFlow(key));
+        tunKey.src_port = (uint16)(hash ? *hash : OvsHashFlow(key));
+        tunKey.src_port = htons(tunKey.src_port | MAXINT16);
         tunKey.dst_port = key->ipKey.l4.tpDst;
         NTSTATUS convertStatus = OvsTunnelAttrToIPv4TunnelKey((PNL_ATTR)a, &tunKey);
         status = SUCCEEDED(convertStatus) ? NDIS_STATUS_SUCCESS : NDIS_STATUS_FAILURE;
@@ -1659,7 +1647,6 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
 {
     NTSTATUS status = NDIS_STATUS_SUCCESS;
     PNL_ATTR userdataAttr;
-    PNL_ATTR queueAttr;
     POVS_PACKET_QUEUE_ELEM elem;
     POVS_PACKET_HDR_INFO layers = &ovsFwdCtx->layers;
     BOOLEAN isRecv = FALSE;
@@ -1674,7 +1661,6 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
         }
     }
 
-    queueAttr = NlAttrFindNested(attr, OVS_USERSPACE_ATTR_PID);
     userdataAttr = NlAttrFindNested(attr, OVS_USERSPACE_ATTR_USERDATA);
 
     elem = OvsCreateQueueNlPacket(NlAttrData(userdataAttr),
