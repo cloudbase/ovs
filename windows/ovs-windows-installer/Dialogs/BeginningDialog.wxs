@@ -22,7 +22,7 @@
       <Dialog Id="BeginningDialog" Width="370" Height="270" Title="!(loc.WelcomeDlg_Title)">
         <Control Id="Title" Type="Text" X="135" Y="20" Width="212" Height="60" Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeDlgTitle)" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-        <Control Id="Description" Type="Text" X="135" Y="80" Width="212" Height="60" Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeDlgDescription)">
+        <Control Id="Description" Type="Text" X="135" Y="80" Width="212" Height="60" Transparent="yes" NoPrefix="yes" Text="This will install [ProductName] [ProductVersion] on your computer. Click Next to continue or Cancel to exit Setup.">
           <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
           <Condition Action="hide">Installed AND PATCH</Condition>
         </Control>

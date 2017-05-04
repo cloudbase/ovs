@@ -27,6 +27,76 @@
               BinaryKey="OVSActions"
               JScriptCall="runCommandAction" Execute="deferred" Return="check" Impersonate="no" />
 
+    <CustomAction Id="GenerateNorthConfDB_Prop" Property="GenerateNorthConfDB"
+                  Value='"[BINARIESDIR]ovsdb-tool.exe" create "[CONFDIR]ovnnb_db.db" "[CONFDIR]ovn-nb.ovsschema"|0|ovsdb-tool failed to create the northbound database'
+                  Execute="immediate" />
+    <CustomAction Id="GenerateNorthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="GenerateSouthConfDB_Prop" Property="GenerateSouthConfDB"
+                  Value='"[BINARIESDIR]ovsdb-tool.exe" create "[CONFDIR]ovnsb_db.db" "[CONFDIR]ovn-sb.ovsschema"|0|ovsdb-tool failed to create the southbound database'
+                  Execute="immediate" />
+    <CustomAction Id="GenerateSouthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="EnableNorthConfDB_Prop" Property="EnableNorthConfDB"
+                  Value='"[System64Folder]sc.exe" config ovn-north-database start= auto|0|could not set ovn-north-database to auto start'
+                  Execute="immediate" />
+    <CustomAction Id="EnableNorthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="EnableSouthConfDB_Prop" Property="EnableSouthConfDB"
+                  Value='"[System64Folder]sc.exe" config ovn-south-database start= auto|0|could not set ovn-south-database to auto start'
+                  Execute="immediate" />
+    <CustomAction Id="EnableSouthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="DisableNorthConfDB_Prop" Property="DisableNorthConfDB"
+                  Value='"[System64Folder]sc.exe" config ovn-north-database start= disabled'
+                  Execute="immediate" />
+    <CustomAction Id="DisableNorthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Impersonate="no" />
+
+    <CustomAction Id="DisableSouthConfDB_Prop" Property="DisableSouthConfDB"
+                  Value='"[System64Folder]sc.exe" config ovn-south-database start= disabled'
+                  Execute="immediate" />
+    <CustomAction Id="DisableSouthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Impersonate="no" />
+
+    <CustomAction Id="StopNorthConfDB_Prop" Property="StopNorthConfDB"
+                  Value='"[System64Folder]net.exe" stop ovn-north-database'
+                  Execute="immediate" />
+    <CustomAction Id="StopNorthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Impersonate="no" />
+
+    <CustomAction Id="StopSouthConfDB_Prop" Property="StopSouthConfDB"
+                  Value='"[System64Folder]net.exe" stop ovn-south-database'
+                  Execute="immediate" />
+    <CustomAction Id="StopSouthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="runCommandAction" Execute="deferred" Impersonate="no" />
+
+    <CustomAction Id="StartNorthConfDB_Prop" Property="StartNorthConfDB"
+                  Value='ovn-north-database||Start'
+                  Execute="immediate" />
+    <CustomAction Id="StartNorthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="StartSouthConfDB_Prop" Property="StartSouthConfDB"
+                  Value='ovn-south-database||Start'
+                  Execute="immediate" />
+    <CustomAction Id="StartSouthConfDB"
+                  BinaryKey="OVSActions"
+                  JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
+
     <CustomAction Id="InitializeDB_Prop" Property="InitializeDB"
                   Value='"[BINARIESDIR]ovs-vsctl.exe" --no-wait --db=unix:"[APPDATADIR]db.sock" init|0|ovs-vsctl failed to initialize the database'
                   Execute="immediate" />
@@ -61,6 +131,14 @@
     <CustomAction Id="StartOvnControllerService_Prop" Return="check" Property="ChangeOvnControllerService"
                   Value="ovn-controller||Start" />
     <CustomAction Id="ChangeOvnControllerService"
+              BinaryKey="OVSActions"
+              JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
+
+    <CustomAction Id="RestartOvnNorthdService_Prop" Return="check" Property="ChangeOvnNorthdService"
+                      Value="ovn-northd||Restart" />
+    <CustomAction Id="StartOvnNorthdService_Prop" Return="check" Property="ChangeOvnNorthdService"
+                  Value="ovn-northd||Start" />
+    <CustomAction Id="ChangeOvnNorthdService"
               BinaryKey="OVSActions"
               JScriptCall="changeServiceAction" Execute="deferred" Return="check" Impersonate="no" />
 

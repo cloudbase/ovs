@@ -55,6 +55,7 @@ EXTRA_DIST += \
 	windows/ovs-windows-installer/Dialogs/MyEndDialog.wxs \
 	windows/ovs-windows-installer/Dialogs/MyTroubleshootDialog.wxs \
 	windows/ovs-windows-installer/Dialogs/UserFinishDialog.wxs \
+	windows/ovs-windows-installer/Exclude.xsl \
 	windows/ovs-windows-installer/License.rtf \
 	windows/ovs-windows-installer/Product.wxs \
 	windows/ovs-windows-installer/UI.wxs \
