@@ -80,6 +80,8 @@ struct ovs_conntrack_info {
 #endif
 };
 
+static bool labels_nonzero(const struct ovs_key_ct_labels *labels);
+
 static void __ovs_ct_free_action(struct ovs_conntrack_info *ct_info);
 
 static u16 key_to_nfproto(const struct sw_flow_key *key)
@@ -136,31 +138,20 @@ static u32 ovs_ct_get_mark(const struct nf_conn *ct)
 #endif
 }
 
-static size_t ovs_ct_get_labels_len(struct nf_conn_labels *cl)
-{
-#ifdef HAVE_NF_CONN_LABELS_WITH_WORDS
-	return cl->words * sizeof(long);
-#else
-	return sizeof(cl->bits);
+/* Guard against conntrack labels max size shrinking below 128 bits. */
+#if NF_CT_LABELS_MAX_SIZE < 16
+#error NF_CT_LABELS_MAX_SIZE must be at least 16 bytes
 #endif
-}
 
 static void ovs_ct_get_labels(const struct nf_conn *ct,
 			      struct ovs_key_ct_labels *labels)
 {
 	struct nf_conn_labels *cl = ct ? nf_ct_labels_find(ct) : NULL;
 
-	if (cl) {
-		size_t len = ovs_ct_get_labels_len(cl);
-
-		if (len > OVS_CT_LABELS_LEN)
-			len = OVS_CT_LABELS_LEN;
-		else if (len < OVS_CT_LABELS_LEN)
-			memset(labels, 0, OVS_CT_LABELS_LEN);
-		memcpy(labels, cl->bits, len);
-	} else {
+	if (cl)
+		memcpy(labels, cl->bits, OVS_CT_LABELS_LEN);
+	else
 		memset(labels, 0, OVS_CT_LABELS_LEN);
-	}
 }
 
 static void __ovs_ct_update_key(struct sw_flow_key *key, u8 state,
@@ -245,23 +236,17 @@ int ovs_ct_put_key(const struct sw_flow_key *key, struct sk_buff *skb)
 	return 0;
 }
 
-static int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
+static int ovs_ct_set_mark(struct nf_conn *ct, struct sw_flow_key *key,
 			   u32 ct_mark, u32 mask)
 {
 #if IS_ENABLED(CONFIG_NF_CONNTRACK_MARK)
-	enum ip_conntrack_info ctinfo;
-	struct nf_conn *ct;
 	u32 new_mark;
-
-	/* The connection could be invalid, in which case set_mark is no-op. */
-	ct = nf_ct_get(skb, &ctinfo);
-	if (!ct)
-		return 0;
 
 	new_mark = ct_mark | (ct->mark & ~(mask));
 	if (ct->mark != new_mark) {
 		ct->mark = new_mark;
-		nf_conntrack_event_cache(IPCT_MARK, ct);
+		if (nf_ct_is_confirmed(ct))
+			nf_conntrack_event_cache(IPCT_MARK, ct);
 		key->ct.mark = new_mark;
 	}
 
@@ -271,19 +256,9 @@ static int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
 #endif
 }
 
-static int ovs_ct_set_labels(struct sk_buff *skb, struct sw_flow_key *key,
-			     const struct ovs_key_ct_labels *labels,
-			     const struct ovs_key_ct_labels *mask)
+static struct nf_conn_labels *ovs_ct_get_conn_labels(struct nf_conn *ct)
 {
-	enum ip_conntrack_info ctinfo;
 	struct nf_conn_labels *cl;
-	struct nf_conn *ct;
-	int err;
-
-	/* The connection could be invalid, in which case set_label is no-op.*/
-	ct = nf_ct_get(skb, &ctinfo);
-	if (!ct)
-		return 0;
 
 	cl = nf_ct_labels_find(ct);
 	if (!cl) {
@@ -291,15 +266,76 @@ static int ovs_ct_set_labels(struct sk_buff *skb, struct sw_flow_key *key,
 		cl = nf_ct_labels_find(ct);
 	}
 
-	if (!cl || ovs_ct_get_labels_len(cl) < OVS_CT_LABELS_LEN)
+	return cl;
+}
+
+/* Initialize labels for a new, yet to be committed conntrack entry.  Note that
+ * since the new connection is not yet confirmed, and thus no-one else has
+ * access to it's labels, we simply write them over.
+ */
+static int ovs_ct_init_labels(struct nf_conn *ct, struct sw_flow_key *key,
+			      const struct ovs_key_ct_labels *labels,
+			      const struct ovs_key_ct_labels *mask)
+{
+	struct nf_conn_labels *cl, *master_cl;
+	bool have_mask = labels_nonzero(mask);
+
+	/* Inherit master's labels to the related connection? */
+	master_cl = ct->master ? nf_ct_labels_find(ct->master) : NULL;
+
+	if (!master_cl && !have_mask)
+		return 0;   /* Nothing to do. */
+
+	cl = ovs_ct_get_conn_labels(ct);
+	if (!cl)
 		return -ENOSPC;
 
-	err = nf_connlabels_replace(ct, (u32 *)labels, (u32 *)mask,
-				    OVS_CT_LABELS_LEN / sizeof(u32));
+	/* Inherit the master's labels, if any.  Must use memcpy for backport
+	 * as struct assignment only copies the length field in older
+	 * kernels.
+	 */
+	if (master_cl)
+		memcpy(cl->bits, master_cl->bits, OVS_CT_LABELS_LEN);
+
+	if (have_mask) {
+		u32 *dst = (u32 *)cl->bits;
+		int i;
+
+		for (i = 0; i < OVS_CT_LABELS_LEN_32; i++)
+			dst[i] = (dst[i] & ~mask->ct_labels_32[i]) |
+				(labels->ct_labels_32[i]
+				 & mask->ct_labels_32[i]);
+	}
+
+	/* Labels are included in the IPCTNL_MSG_CT_NEW event only if the
+	 * IPCT_LABEL bit it set in the event cache.
+	 */
+	nf_conntrack_event_cache(IPCT_LABEL, ct);
+
+	memcpy(&key->ct.labels, cl->bits, OVS_CT_LABELS_LEN);
+
+	return 0;
+}
+
+static int ovs_ct_set_labels(struct nf_conn *ct, struct sw_flow_key *key,
+			     const struct ovs_key_ct_labels *labels,
+			     const struct ovs_key_ct_labels *mask)
+{
+	struct nf_conn_labels *cl;
+	int err;
+
+	cl = ovs_ct_get_conn_labels(ct);
+	if (!cl)
+		return -ENOSPC;
+
+	err = nf_connlabels_replace(ct, labels->ct_labels_32,
+				    mask->ct_labels_32,
+				    OVS_CT_LABELS_LEN_32);
 	if (err)
 		return err;
 
-	ovs_ct_get_labels(ct, &key->ct.labels);
+	memcpy(&key->ct.labels, cl->bits, OVS_CT_LABELS_LEN);
+
 	return 0;
 }
 
@@ -471,7 +507,7 @@ ovs_ct_get_info(const struct nf_conntrack_tuple_hash *h)
  */
 static struct nf_conn *
 ovs_ct_find_existing(struct net *net, const struct nf_conntrack_zone *zone,
-		     u8 l3num, struct sk_buff *skb)
+		     u8 l3num, struct sk_buff *skb, bool natted)
 {
 	struct nf_conntrack_l3proto *l3proto;
 	struct nf_conntrack_l4proto *l4proto;
@@ -494,12 +530,30 @@ ovs_ct_find_existing(struct net *net, const struct nf_conntrack_zone *zone,
 		return NULL;
 	}
 
+	/* Must invert the tuple if skb has been transformed by NAT. */
+	if (natted) {
+		struct nf_conntrack_tuple inverse;
+
+		if (!nf_ct_invert_tuple(&inverse, &tuple, l3proto, l4proto)) {
+			pr_debug("ovs_ct_find_existing: Inversion failed!\n");
+			return NULL;
+		}
+		tuple = inverse;
+	}
+
 	/* look for tuple match */
 	h = nf_conntrack_find_get(net, zone, &tuple);
 	if (!h)
 		return NULL;   /* Not found. */
 
 	ct = nf_ct_tuplehash_to_ctrack(h);
+
+	/* Inverted packet tuple matches the reverse direction conntrack tuple,
+	 * select the other tuplehash to get the right 'ctinfo' bits for this
+	 * packet.
+	 */
+	if (natted)
+		h = &ct->tuplehash[!h->tuple.dst.dir];
 
 	skb->nfct = &ct->ct_general;
 	skb->nfctinfo = ovs_ct_get_info(h);
@@ -524,7 +578,9 @@ static bool skb_nfct_cached(struct net *net,
 	if (!ct && key->ct.state & OVS_CS_F_TRACKED &&
 	    !(key->ct.state & OVS_CS_F_INVALID) &&
 	    key->ct.zone == info->zone.id)
-		ct = ovs_ct_find_existing(net, &info->zone, info->family, skb);
+		ct = ovs_ct_find_existing(net, &info->zone, info->family, skb,
+					  !!(key->ct.state
+					     & OVS_CS_F_NAT_MASK));
 	if (!ct)
 		return false;
 	if (!net_eq(net, read_pnet(&ct->ct_net)))
@@ -770,12 +826,8 @@ static int __ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 			skb->nfctinfo = IP_CT_NEW;
 		}
 
-		/* Repeat if requested, see nf_iterate(). */
-		do {
-			err = nf_conntrack_in(net, info->family,
-					      NF_INET_FORWARD, skb);
-		} while (err == NF_REPEAT);
-
+		err = nf_conntrack_in(net, info->family,
+				      NF_INET_FORWARD, skb);
 		if (err != NF_ACCEPT)
 			return -ENOENT;
 
@@ -877,8 +929,8 @@ static bool labels_nonzero(const struct ovs_key_ct_labels *labels)
 {
 	size_t i;
 
-	for (i = 0; i < sizeof(*labels); i++)
-		if (labels->ct_labels[i])
+	for (i = 0; i < OVS_CT_LABELS_LEN_32; i++)
+		if (labels->ct_labels_32[i])
 			return true;
 
 	return false;
@@ -889,24 +941,36 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 			 const struct ovs_conntrack_info *info,
 			 struct sk_buff *skb)
 {
+	enum ip_conntrack_info ctinfo;
+	struct nf_conn *ct;
 	int err;
 
 	err = __ovs_ct_lookup(net, key, info, skb);
 	if (err)
 		return err;
 
+	/* The connection could be invalid, in which case this is a no-op.*/
+	ct = nf_ct_get(skb, &ctinfo);
+	if (!ct)
+		return 0;
+
 	/* Apply changes before confirming the connection so that the initial
 	 * conntrack NEW netlink event carries the values given in the CT
 	 * action.
 	 */
 	if (info->mark.mask) {
-		err = ovs_ct_set_mark(skb, key, info->mark.value,
+		err = ovs_ct_set_mark(ct, key, info->mark.value,
 				      info->mark.mask);
 		if (err)
 			return err;
 	}
-	if (labels_nonzero(&info->labels.mask)) {
-		err = ovs_ct_set_labels(skb, key, &info->labels.value,
+	if (!nf_ct_is_confirmed(ct)) {
+		err = ovs_ct_init_labels(ct, key, &info->labels.value,
+					 &info->labels.mask);
+		if (err)
+			return err;
+	} else if (labels_nonzero(&info->labels.mask)) {
+		err = ovs_ct_set_labels(ct, key, &info->labels.value,
 					&info->labels.mask);
 		if (err)
 			return err;
