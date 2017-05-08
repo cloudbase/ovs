@@ -1569,7 +1569,7 @@ OvsUpdateAddressAndPort(OvsForwardingContext *ovsFwdCtx,
         if (mss) {
             OVS_LOG_TRACE("l4Offset %d", layers->l4Offset);
             newNbl = OvsTcpSegmentNBL(ovsFwdCtx->switchContext, curNbl, layers,
-                                      mss, 0);
+                                      mss, 0, FALSE);
             if (newNbl == NULL) {
                 OVS_LOG_ERROR("Unable to segment NBL");
                 return NDIS_STATUS_FAILURE;

@@ -107,6 +107,7 @@ OvsLookupIPFrag(POVS_IPFRAG_KEY fragKey, UINT32 hash)
     NdisAcquireRWLockRead(ovsIpFragmentHashLockObj, &lockState, 0);
     LIST_FORALL(&OvsIpFragTable[hash & IP_FRAG_HASH_TABLE_MASK], link) {
         entry = CONTAINING_RECORD(link, OVS_IPFRAG_ENTRY, link);
+        NdisAcquireSpinLock(&(entry->lockObj));
         if (entry->fragKey.dAddr == fragKey->dAddr &&
             entry->fragKey.sAddr == fragKey->sAddr &&
             entry->fragKey.id == fragKey->id &&
@@ -115,6 +116,7 @@ OvsLookupIPFrag(POVS_IPFRAG_KEY fragKey, UINT32 hash)
             NdisReleaseRWLock(ovsIpFragmentHashLockObj, &lockState);
             return entry;
         }
+        NdisReleaseSpinLock(&(entry->lockObj));
     }
     NdisReleaseRWLock(ovsIpFragmentHashLockObj, &lockState);
     return NULL;
@@ -333,6 +335,7 @@ OvsProcessIpv4Fragment(POVS_SWITCH_CONTEXT switchContext,
     } else {
         /* Acquire the entry lock. */
         NdisAcquireSpinLock(&(entry->lockObj));
+        NdisAcquireRWLockWrite(ovsIpFragmentHashLockObj, &htLockState, 0);
         NdisGetCurrentSystemTime((LARGE_INTEGER *)&currentTime);
         if (currentTime > entry->expiration) {
             /* Expired entry. */
@@ -398,11 +401,13 @@ found:
                                        sourcePort, entry, newNbl);
         }
         NdisReleaseSpinLock(&(entry->lockObj));
+        NdisReleaseRWLock(ovsIpFragmentHashLockObj, &htLockState);
         return status;
     }
 fragment_error:
     /* Release the entry lock. */
     NdisReleaseSpinLock(&(entry->lockObj));
+    NdisReleaseRWLock(ovsIpFragmentHashLockObj, &htLockState);
 payload_copy_error:
     OvsFreeMemoryWithTag(fragStorage->pbuff, OVS_IPFRAG_POOL_TAG);
     OvsFreeMemoryWithTag(fragStorage, OVS_IPFRAG_POOL_TAG);
