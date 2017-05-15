@@ -36,6 +36,7 @@ extern POVS_SWITCH_CONTEXT gOvsSwitchContext;
 static UINT64 ctTotalEntries;
 
 static __inline NDIS_STATUS OvsCtFlush(UINT16 zone);
+static __inline VOID OvsCtEntryDelete(POVS_CT_ENTRY entry);
 
 /*
  *----------------------------------------------------------------------------
@@ -186,7 +187,7 @@ OvsCtAddEntry(POVS_CT_ENTRY entry, OvsConntrackKeyLookupCtx *ctx,
             return FALSE;
         }
         ctx->hash = OvsHashCtKey(&entry->key);
-    } else {
+    } else if (natInfo != NULL) {
         entry->natInfo.natAction = natInfo->natAction;
     }
 
@@ -274,9 +275,12 @@ OvsCtEntryCreate(OvsForwardingContext *fwdCtx,
     }
 
     if (commit && !entry) {
+        *entryCreated = FALSE;
         return NULL;
     }
     if (entry && !OvsCtAddEntry(entry, ctx, natInfo, currentTime)) {
+        *entryCreated = FALSE;
+        OvsCtEntryDelete(entry);
         return NULL;
     }
     OvsCtUpdateFlowKey(key, state, ctx->key.zone, 0, NULL);
@@ -410,7 +414,7 @@ OvsCtLookup(OvsConntrackKeyLookupCtx *ctx)
     LIST_FORALL(&ovsConntrackTable[ctx->hash & CT_HASH_TABLE_MASK], link) {
         entry = CONTAINING_RECORD(link, OVS_CT_ENTRY, link);
 
-        if (OvsCtKeyAreSame(key,entry->key)) {
+        if (OvsCtKeyAreSame(ctx->key, entry->key)) {
             found = entry;
             reply = FALSE;
             break;
@@ -421,6 +425,11 @@ OvsCtLookup(OvsConntrackKeyLookupCtx *ctx)
          * they are equal. Note that flipped key is not equal to
          * rev_key due to NAT effect.
          */
+        if (OvsCtKeyAreSame(ctx->key, entry->rev_key)) {
+            found = entry;
+            reply = TRUE;
+            break;
+        }
         OvsCtKeyReverse(&key);
         if (OvsCtKeyAreSame(key, entry->key)) {
             found = entry;
