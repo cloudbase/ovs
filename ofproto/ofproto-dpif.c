@@ -949,7 +949,12 @@ check_variable_length_userdata(struct dpif_backer *backer)
          * userdata is supported.  Default to "yes". */
         VLOG_WARN("%s: variable-length userdata feature probe failed (%s)",
                   dpif_name(backer->dpif), ovs_strerror(error));
+#ifdef _WIN32
+        VLOG_WARN("Not supported on Windows");
+        return false;
+#else
         return true;
+#endif
     }
 }
 
