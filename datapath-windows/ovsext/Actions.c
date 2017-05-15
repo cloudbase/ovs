@@ -161,7 +161,7 @@ OvsDoFragmentNbl(OvsForwardingContext *ovsFwdCtx, UINT16 mru)
    if (fragNbl != NULL) {
         OvsCompleteNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl, TRUE);
         OvsInitForwardingCtx(ovsFwdCtx,
-                            ovsFwdCtx->switchContext,
+                             ovsFwdCtx->switchContext,
                              fragNbl,
                              ovsFwdCtx->srcVportNo,
                              ovsFwdCtx->sendFlags,
@@ -2163,6 +2163,10 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
             }
 
             PNET_BUFFER_LIST oldNbl = ovsFwdCtx.curNbl;
+            status = OvsExtractFlow(oldNbl, ovsFwdCtx.srcVportNo, key,
+                                    &ovsFwdCtx.layers,
+                                    key->tunKey.dst == 0 ? NULL : &key->tunKey);
+            RtlCopyMemory(&ovsFwdCtx.tunKey, &key->tunKey, sizeof(key->tunKey));
             status = OvsExecuteConntrackAction(&ovsFwdCtx, key,
                                                (const PNL_ATTR)a);
             if (status != NDIS_STATUS_SUCCESS) {
@@ -2170,6 +2174,8 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
                 if (status != NDIS_STATUS_PENDING) {
                     OVS_LOG_ERROR("CT Action failed");
                     dropReason = L"OVS-conntrack action failed";
+                } else {
+                    status = NDIS_STATUS_SUCCESS;
                 }
                 goto dropit;
             } else if (oldNbl != ovsFwdCtx.curNbl) {
@@ -2177,14 +2183,15 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
                 * OvsIpv4Reassemble consumes the original NBL and creates a
                 * new one and assigns it to the curNbl of ovsFwdCtx.
                 */
-               OvsInitForwardingCtx(&ovsFwdCtx,
-                                    ovsFwdCtx.switchContext,
-                                    ovsFwdCtx.curNbl,
-                                    ovsFwdCtx.srcVportNo,
-                                    ovsFwdCtx.sendFlags,
-                                    NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(ovsFwdCtx.curNbl),
-                                    ovsFwdCtx.completionList,
-                                    &ovsFwdCtx.layers, FALSE);
+                OvsInitForwardingCtx(&ovsFwdCtx,
+                                     ovsFwdCtx.switchContext,
+                                     ovsFwdCtx.curNbl,
+                                     ovsFwdCtx.srcVportNo,
+                                     ovsFwdCtx.sendFlags,
+                                     NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(ovsFwdCtx.curNbl),
+                                     ovsFwdCtx.completionList,
+                                     &ovsFwdCtx.layers, FALSE);
+                key->ipKey.nwFrag = OVS_FRAG_TYPE_NONE;
             }
             break;
         }
@@ -2353,8 +2360,7 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
     OvsInitForwardingCtx(&ovsFwdCtx, switchContext, curNbl,
                          srcPortNo, 0,
                          NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(curNbl),
-                         completionList, layers, TRUE);
-
+                         completionList, layers, FALSE);
     flow = OvsLookupFlow(&ovsFwdCtx.switchContext->datapath, key, &hash, FALSE);
     if (flow) {
         UINT32 level = OvsDeferredActionsLevelGet();
