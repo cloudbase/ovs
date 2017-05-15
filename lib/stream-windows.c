@@ -528,7 +528,7 @@ pwindows_accept(struct pstream *pstream, struct stream **new_streamp)
     if (p->fd[the_handle] == INVALID_HANDLE_VALUE) {
         npipe = create_pnpipe(p->pipe_path);
         if (npipe != INVALID_HANDLE_VALUE) {
-            p->fd[the_handle];
+            npipe = p->fd[the_handle];
             ConnectNamedPipe(p->fd[the_handle], &p->connect[the_handle]);
         }
         return EAGAIN;
@@ -608,7 +608,7 @@ static void
 pwindows_close(struct pstream *pstream)
 {
     struct pwindows_pstream *p = pwindows_pstream_cast(pstream);
-    for (int i = 0; i <= MAX_NUMBER_OF_INSTANCES; i++){
+    for (int i = 0; i < MAX_NUMBER_OF_INSTANCES; i++){
         DisconnectNamedPipe(p->fd[i]);
         CloseHandle(p->fd[i]);
         CloseHandle(p->connect[i].hEvent);
