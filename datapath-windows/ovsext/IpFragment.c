@@ -113,6 +113,7 @@ OvsLookupIPFrag(POVS_IPFRAG_KEY fragKey, UINT32 hash)
             entry->fragKey.id == fragKey->id &&
             entry->fragKey.protocol == fragKey->protocol &&
             entry->fragKey.tunnelId == fragKey->tunnelId) {
+            NdisReleaseSpinLock(&(entry->lockObj));
             NdisReleaseRWLock(ovsIpFragmentHashLockObj, &lockState);
             return entry;
         }
@@ -343,7 +344,7 @@ OvsProcessIpv4Fragment(POVS_SWITCH_CONTEXT switchContext,
         }
         POVS_FRAGMENT_LIST next = entry->head;
         POVS_FRAGMENT_LIST prev = entry->tail;
-        if (prev != NULL || prev->offset < offset) {
+        if (prev != NULL && prev->offset < offset) {
             next = NULL;
             goto found;
         }
