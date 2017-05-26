@@ -871,11 +871,13 @@ MapFlowKeyToNlKey(PNL_BUFFER nlBuf,
         rc = STATUS_UNSUCCESSFUL;
         goto done;
     }
+
     if (!NlMsgPutTailU16(nlBuf, OVS_KEY_ATTR_CT_ZONE,
                          flowKey->ct.zone)) {
         rc = STATUS_UNSUCCESSFUL;
         goto done;
     }
+
     if (!NlMsgPutTailU32(nlBuf, OVS_KEY_ATTR_CT_MARK,
                          flowKey->ct.mark)) {
         rc = STATUS_UNSUCCESSFUL;
@@ -913,8 +915,13 @@ MapFlowKeyToNlKey(PNL_BUFFER nlBuf,
         goto done;
     }
 
-    if (!NlMsgPutTailU16(nlBuf, OVS_KEY_ATTR_ETHERTYPE,
-                         flowKey->l2.dlType)) {
+    if (flowKey->l2.dlType != 0) {
+        if (!NlMsgPutTailU16(nlBuf, OVS_KEY_ATTR_ETHERTYPE,
+            flowKey->l2.dlType)) {
+            rc = STATUS_UNSUCCESSFUL;
+            goto done;
+        }
+    } else {
         rc = STATUS_UNSUCCESSFUL;
         goto done;
     }
@@ -1919,7 +1926,8 @@ GetStartAddrNBL(const NET_BUFFER_LIST *_pNB)
 
     // Ethernet Header is a guaranteed safe access.
     curMdl = (NET_BUFFER_LIST_FIRST_NB(_pNB))->CurrentMdl;
-    curBuffer =  MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority);
+    curBuffer =  MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority |
+                                              MdlMappingNoExecute);
     if (!curBuffer) {
         return NULL;
     }
@@ -2282,7 +2290,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
         flow->l2.dlType = eth->e802_3.snap.snapType.typeNBO;
         layers->l3Offset = ETH_HEADER_LEN_802_3 + offset;
     } else {
-        flow->l2.dlType = htons(OVSWIN_DL_TYPE_NONE);
+        flow->l2.dlType = 0;
         layers->l3Offset = ETH_HEADER_LEN_DIX + offset;
     }
 
@@ -2364,7 +2372,8 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
             OvsParseIcmpV6(packet, &flow->ipv6Key, &flow->icmp6Key, layers);
             flow->l2.keyLen += (OVS_ICMPV6_KEY_SIZE - OVS_IPV6_KEY_SIZE);
         }
-    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP)) {
+    } else if (flow->l2.dlType == htons(ETH_TYPE_ARP) ||
+               flow->l2.dlType == htons(ETH_TYPE_RARP)) {
         EtherArp arpStorage;
         const EtherArp *arp;
         ArpKey *arpKey = &flow->arpKey;

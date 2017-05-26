@@ -29,6 +29,7 @@
 LIST_ENTRY ovsEventQueueArr[OVS_MCAST_EVENT_TYPES_MAX];
 static NDIS_SPIN_LOCK eventQueueLockArr[OVS_MCAST_EVENT_TYPES_MAX];
 UINT32 ovsNumEventQueueArr[OVS_MCAST_EVENT_TYPES_MAX];
+DRIVER_CANCEL OvsCancelIrp;
 
 NTSTATUS
 OvsInitEventQueue()
@@ -50,12 +51,19 @@ OvsCleanupEventQueue()
     }
 }
 
+_IRQL_raises_(DISPATCH_LEVEL)
+_IRQL_saves_global_(OldIrql, eventQueueLockArr[eventId])
+_Acquires_lock_(eventQueueLockArr[eventId])
 static __inline VOID
 OvsAcquireEventQueueLock(int eventId)
 {
     NdisAcquireSpinLock(&eventQueueLockArr[eventId]);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_restores_global_(OldIrql, eventQueueLockArr[eventId])
+_Requires_lock_held_(eventQueueLockArr[eventId])
+_Releases_lock_(eventQueueLockArr[eventId])
 static __inline VOID
 OvsReleaseEventQueueLock(int eventId)
 {

@@ -53,13 +53,21 @@ extern NL_POLICY nlFlowKeyPolicy[];
 extern UINT32 nlFlowKeyPolicyLen;
 extern NL_POLICY nlFlowTunnelKeyPolicy[];
 extern UINT32 nlFlowTunnelKeyPolicyLen;
+DRIVER_CANCEL OvsCancelIrpDatapath;
 
+_IRQL_raises_(DISPATCH_LEVEL)
+_IRQL_saves_global_(OldIrql, gOvsSwitchContext->pidHashLock)
+_Acquires_lock_(gOvsSwitchContext->pidHashLock)
 static __inline VOID
 OvsAcquirePidHashLock()
 {
     NdisAcquireSpinLock(&(gOvsSwitchContext->pidHashLock));
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_restores_global_(OldIrql, gOvsSwitchContext->pidHashLock)
+_Requires_lock_held_(gOvsSwitchContext->pidHashLock)
+_Releases_lock_(gOvsSwitchContext->pidHashLock)
 static __inline VOID
 OvsReleasePidHashLock()
 {

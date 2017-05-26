@@ -183,7 +183,9 @@ typedef struct _OVS_SWITCH_CONTEXT
     OVS_NBL_POOL            ovsPool;
 } OVS_SWITCH_CONTEXT, *POVS_SWITCH_CONTEXT;
 
-
+_IRQL_raises_(DISPATCH_LEVEL)
+_IRQL_saves_global_(OldIrql, lockState)
+_Acquires_lock_(datapath->lock)
 static __inline VOID
 OvsAcquireDatapathRead(OVS_DATAPATH *datapath,
                        LOCK_STATE_EX *lockState,
@@ -194,6 +196,9 @@ OvsAcquireDatapathRead(OVS_DATAPATH *datapath,
                           dispatch ? NDIS_RWL_AT_DISPATCH_LEVEL : 0);
 }
 
+_IRQL_raises_(DISPATCH_LEVEL)
+_IRQL_saves_global_(OldIrql, lockState)
+_Acquires_lock_(datapath->lock)
 static __inline VOID
 OvsAcquireDatapathWrite(OVS_DATAPATH *datapath,
                         LOCK_STATE_EX *lockState,
@@ -204,6 +209,10 @@ OvsAcquireDatapathWrite(OVS_DATAPATH *datapath,
                            dispatch ? NDIS_RWL_AT_DISPATCH_LEVEL : 0);
 }
 
+_IRQL_requires_(DISPATCH_LEVEL)
+_IRQL_restores_global_(OldIrql, lockState)
+_Requires_lock_held_(datapath->lock)
+_Releases_lock_(datapath->lock)
 static __inline VOID
 OvsReleaseDatapath(OVS_DATAPATH *datapath,
                    LOCK_STATE_EX *lockState)

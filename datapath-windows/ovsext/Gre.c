@@ -203,7 +203,7 @@ OvsDoEncapGre(POVS_VPORT_ENTRY vport,
 
         curMdl = NET_BUFFER_CURRENT_MDL(curNb);
         bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl,
-                                                           LowPagePriority);
+                                                           LowPagePriority | MdlMappingNoExecute);
         if (!bufferStart) {
             status = NDIS_STATUS_RESOURCES;
             goto ret_error;

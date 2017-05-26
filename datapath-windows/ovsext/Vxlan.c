@@ -245,7 +245,7 @@ OvsDoEncapVxlan(POVS_VPORT_ENTRY vport,
 
         curMdl = NET_BUFFER_CURRENT_MDL(curNb);
         bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl,
-                                                           LowPagePriority);
+                                                           LowPagePriority | MdlMappingNoExecute);
         if (!bufferStart) {
             status = NDIS_STATUS_RESOURCES;
             goto ret_error;
@@ -416,7 +416,7 @@ OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
     curNbl = *newNbl;
     curNb = NET_BUFFER_LIST_FIRST_NB(curNbl);
     curMdl = NET_BUFFER_CURRENT_MDL(curNb);
-    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority) +
+    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority | MdlMappingNoExecute) +
                   NET_BUFFER_CURRENT_MDL_OFFSET(curNb);
     if (!bufferStart) {
         status = NDIS_STATUS_RESOURCES;

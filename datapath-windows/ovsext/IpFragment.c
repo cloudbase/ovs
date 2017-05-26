@@ -27,7 +27,7 @@
 #define OVS_DBG_MOD OVS_DBG_IPFRAG
 
 /* Function declarations */
-static VOID OvsIpFragmentEntryCleaner(PVOID data);
+static KSTART_ROUTINE OvsIpFragmentEntryCleaner;
 static VOID OvsIpFragmentEntryDelete(POVS_IPFRAG_ENTRY entry);
 
 /* Global and static variables */
@@ -195,6 +195,7 @@ OvsIpv4Reassemble(POVS_SWITCH_CONTEXT switchContext,
     if (*newNbl == NULL) {
         OVS_LOG_ERROR("Insufficient resources, failed to allocate newNbl");
         status = NDIS_STATUS_RESOURCES;
+        return status;
     }
 
     OvsFreeMemoryWithTag(packetBuf, OVS_IPFRAG_POOL_TAG);
@@ -336,7 +337,6 @@ OvsProcessIpv4Fragment(POVS_SWITCH_CONTEXT switchContext,
     } else {
         /* Acquire the entry lock. */
         NdisAcquireSpinLock(&(entry->lockObj));
-        NdisAcquireRWLockWrite(ovsIpFragmentHashLockObj, &htLockState, 0);
         NdisGetCurrentSystemTime((LARGE_INTEGER *)&currentTime);
         if (currentTime > entry->expiration) {
             /* Expired entry. */
@@ -402,13 +402,11 @@ found:
                                        sourcePort, entry, newNbl);
         }
         NdisReleaseSpinLock(&(entry->lockObj));
-        NdisReleaseRWLock(ovsIpFragmentHashLockObj, &htLockState);
         return status;
     }
 fragment_error:
     /* Release the entry lock. */
     NdisReleaseSpinLock(&(entry->lockObj));
-    NdisReleaseRWLock(ovsIpFragmentHashLockObj, &htLockState);
 payload_copy_error:
     OvsFreeMemoryWithTag(fragStorage->pbuff, OVS_IPFRAG_POOL_TAG);
     OvsFreeMemoryWithTag(fragStorage, OVS_IPFRAG_POOL_TAG);

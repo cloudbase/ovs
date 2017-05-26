@@ -802,6 +802,9 @@ OvsPartialCopyNBL(PVOID ovsContext,
              OVS_BUFFER_PRIVATE_FORWARD_CONTEXT;
 
     srcNb = NET_BUFFER_LIST_FIRST_NB(nbl);
+    if (srcNb == NULL) {
+        goto copy_list_info_error;
+    }
     OvsInitNBLContext(dstCtx, flags, NET_BUFFER_DATA_LENGTH(srcNb) - copySize,
                       OVS_DPPORT_NUMBER_INVALID);
 
@@ -1056,6 +1059,7 @@ OvsFullCopyNBL(PVOID ovsContext,
              OVS_BUFFER_PRIVATE_NET_BUFFER | OVS_BUFFER_FROM_NBL_ONLY_POOL |
              OVS_BUFFER_PRIVATE_FORWARD_CONTEXT;
 
+    ASSERT(firstNb);
     OvsInitNBLContext(dstCtx, flags, NET_BUFFER_DATA_LENGTH(firstNb),
                       OVS_DPPORT_NUMBER_INVALID);
 
@@ -1153,7 +1157,8 @@ FixFragmentHeader(PNET_BUFFER nb, UINT16 fragmentSize,
 
     mdl = NET_BUFFER_FIRST_MDL(nb);
 
-    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(mdl, LowPagePriority);
+    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(mdl,
+                                                       LowPagePriority | MdlMappingNoExecute);
     if (!bufferStart) {
         return NDIS_STATUS_RESOURCES;
     }
@@ -1211,7 +1216,8 @@ FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber,
 
     mdl = NET_BUFFER_FIRST_MDL(nb);
 
-    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(mdl, LowPagePriority);
+    bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(mdl, LowPagePriority |
+                                                       MdlMappingNoExecute);
     if (!bufferStart) {
         return NDIS_STATUS_RESOURCES;
     }
@@ -1227,11 +1233,11 @@ FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber,
         dstIP = (IPHdr *)((PCHAR)dstEth + sizeof(*dstEth));
         dstTCP = (TCPHdr *)((PCHAR)dstIP + dstIP->ihl * 4);
         ASSERT((INT)MmGetMdlByteCount(mdl) - NET_BUFFER_CURRENT_MDL_OFFSET(nb)
-                >= sizeof(EthHdr) + dstIP->ihl * 4 + TCP_HDR_LEN(dstTCP));
+                >= sizeof(EthHdr) + dstIP->ihl * 4 + dstTCP->doff * 4);
 
         /* Fix IP length and checksum */
         ASSERT(dstIP->protocol == IPPROTO_TCP);
-        dstIP->tot_len = htons(segmentSize + dstIP->ihl * 4 + TCP_HDR_LEN(dstTCP));
+        dstIP->tot_len = htons(segmentSize + dstIP->ihl * 4 + dstTCP->doff * 4);
         dstIP->id += packetCounter;
         dstIP->check = 0;
         dstIP->check = IPChecksum((UINT8 *)dstIP, dstIP->ihl * 4, 0);
@@ -1267,11 +1273,11 @@ FixSegmentHeader(PNET_BUFFER nb, UINT16 segmentSize, UINT32 seqNumber,
         dstIP = (IPv6Hdr *)((PCHAR)dstEth + sizeof(*dstEth));
         dstTCP = (TCPHdr *)((PCHAR)dstIP + sizeof(IPv6Hdr));
         ASSERT((INT)MmGetMdlByteCount(mdl) - NET_BUFFER_CURRENT_MDL_OFFSET(nb)
-            >= sizeof(EthHdr) + sizeof(IPv6Hdr) + TCP_HDR_LEN(dstTCP));
+            >= sizeof(EthHdr) + sizeof(IPv6Hdr) + dstTCP->doff * 4);
 
         /* Fix IP length */
         ASSERT(dstIP->nexthdr == IPPROTO_TCP);
-        dstIP->payload_len = htons(segmentSize + sizeof(IPv6Hdr) + TCP_HDR_LEN(dstTCP));
+        dstIP->payload_len = htons(segmentSize + sizeof(IPv6Hdr) + dstTCP->doff * 4);
 
         dstTCP->seq = htonl(seqNumber);
         if (dstTCP->fin) {
@@ -1517,7 +1523,8 @@ OvsAllocateNBLFromBuffer(PVOID context,
 
     nb = NET_BUFFER_LIST_FIRST_NB(nbl);
     mdl = NET_BUFFER_CURRENT_MDL(nb);
-    data = (PUINT8)MmGetSystemAddressForMdlSafe(mdl, LowPagePriority) +
+    data = (PUINT8)MmGetSystemAddressForMdlSafe(mdl, LowPagePriority |
+                                                MdlMappingNoExecute) +
                     NET_BUFFER_CURRENT_MDL_OFFSET(nb);
     if (!data) {
         OvsCompleteNBL(switchContext, nbl, TRUE);
@@ -1674,9 +1681,11 @@ OvsCompleteNBL(POVS_SWITCH_CONTEXT context,
         PNET_BUFFER nbTemp = NET_BUFFER_LIST_FIRST_NB(nbl);
         while (nbTemp) {
             PMDL mdl = NET_BUFFER_FIRST_MDL(nbTemp);
+            if (mdl) {
+                ASSERT(mdl->Next == NULL);
+                OvsFreeMDLAndData(mdl);
+            }
             NET_BUFFER_FIRST_MDL(nbTemp) = NULL;
-            ASSERT(mdl->Next == NULL);
-            OvsFreeMDLAndData(mdl);
             nbTemp = NET_BUFFER_NEXT_NB(nbTemp);
         }
     }

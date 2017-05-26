@@ -216,7 +216,7 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
         curMdl = NET_BUFFER_CURRENT_MDL(curNb);
         innerFrameLen = NET_BUFFER_DATA_LENGTH(curNb);
         bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl,
-                                                           LowPagePriority);
+                                                           LowPagePriority | MdlMappingNoExecute);
         if (bufferStart == NULL) {
             status = NDIS_STATUS_RESOURCES;
             goto ret_error;
@@ -266,7 +266,7 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
         ASSERT((int) (MmGetMdlByteCount(curMdl) -
                     NET_BUFFER_CURRENT_MDL_OFFSET(curNb)) >= (int) headRoom);
 
-        buf = (PUINT8) MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority);
+        buf = (PUINT8) MmGetSystemAddressForMdlSafe(curMdl, LowPagePriority | MdlMappingNoExecute);
         if (!buf) {
             ASSERT(!"MmGetSystemAddressForMdlSafe failed");
             OVS_LOG_ERROR("MmGetSystemAddressForMdlSafe failed");
@@ -696,6 +696,7 @@ OvsSttReassemble(POVS_SWITCH_CONTEXT switchContext,
         entry->timeout = currentTime + STT_ENTRY_TIMEOUT;
 
         if (segOffset == 0) {
+            ASSERT(sttHdr);
             entry->sttHdr = *sttHdr;
         }
 
@@ -723,6 +724,7 @@ OvsSttReassemble(POVS_SWITCH_CONTEXT switchContext,
         }
 
         if (segOffset == 0) {
+            ASSERT(sttHdr);
             pktFragEntry->sttHdr = *sttHdr;
         }
         if (ipHdr->ecn == IP_ECN_CE) {
@@ -841,7 +843,7 @@ OvsDecapSetOffloads(PNET_BUFFER_LIST *curNbl,
         curMdl = NET_BUFFER_CURRENT_MDL(curNb);
 
         buf = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl,
-            LowPagePriority);
+            LowPagePriority | MdlMappingNoExecute);
         if (buf == NULL) {
             return NDIS_STATUS_RESOURCES;
         }

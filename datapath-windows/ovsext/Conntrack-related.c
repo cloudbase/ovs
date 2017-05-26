@@ -22,6 +22,7 @@ static UINT64 ctTotalRelatedEntries;
 static OVS_CT_THREAD_CTX ctRelThreadCtx;
 static PNDIS_RW_LOCK_EX ovsCtRelatedLockObj;
 extern POVS_SWITCH_CONTEXT gOvsSwitchContext;
+KSTART_ROUTINE ovsCtRelatedEntryCleaner;
 
 static __inline UINT32
 OvsExtractCtRelatedKeyHash(OVS_CT_KEY *key)

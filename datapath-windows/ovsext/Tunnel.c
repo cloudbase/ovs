@@ -47,12 +47,17 @@ static NTSTATUS
 OvsInjectPacketThroughActions(PNET_BUFFER_LIST pNbl,
                               OVS_TUNNEL_PENDED_PACKET *packet);
 
+_Use_decl_annotations_
 VOID OvsAcquireDatapathRead(OVS_DATAPATH *datapath,
                             LOCK_STATE_EX *lockState,
                             BOOLEAN dispatch);
+
+_Use_decl_annotations_
 VOID OvsAcquireDatapathWrite(OVS_DATAPATH *datapath,
                              LOCK_STATE_EX *lockState,
                              BOOLEAN dispatch);
+
+_Use_decl_annotations_
 VOID OvsReleaseDatapath(OVS_DATAPATH *datapath,
                         LOCK_STATE_EX *lockState);
 

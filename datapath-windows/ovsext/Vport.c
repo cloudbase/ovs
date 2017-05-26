@@ -643,13 +643,13 @@ HvDisconnectNic(POVS_SWITCH_CONTEXT switchContext,
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
         OvsPostVportEvent(&event);
     }
-    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
     if (isInternalPort) {
         OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
         OvsPostVportEvent(&event);
     }
+    NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
 done:
     VPORT_NIC_EXIT(nicParam);
@@ -1154,9 +1154,14 @@ GetNICAlias(PNDIS_SWITCH_NIC_PARAMETERS nicParam,
         if (status == STATUS_SUCCESS) {
             RtlStringCbPrintfW(portFriendlyName->String,
                                IF_MAX_STRING_SIZE, L"%s", interfaceName);
-            RtlStringCbLengthW(portFriendlyName->String, IF_MAX_STRING_SIZE,
-                               &len);
-            portFriendlyName->Length = (USHORT)len;
+            status = RtlStringCbLengthW(portFriendlyName->String, IF_MAX_STRING_SIZE,
+                                        &len);
+            if (NT_SUCCESS(status)) {
+                portFriendlyName->Length = (USHORT)len;
+            } else {
+                OVS_LOG_ERROR("Fail to get the length of the string, status: %x",
+                              status);
+            }
         } else {
             OVS_LOG_ERROR("Fail to convert interface LUID to alias, status: %x",
                 status);
@@ -1628,7 +1633,6 @@ OvsGetExtInfoIoctl(POVS_VPORT_GET vportGet,
                    POVS_VPORT_EXT_INFO extInfo)
 {
     POVS_VPORT_ENTRY vport;
-    size_t len;
     LOCK_STATE_EX lockState;
     NTSTATUS status = STATUS_SUCCESS;
     BOOLEAN doConvert = FALSE;
@@ -1636,7 +1640,6 @@ OvsGetExtInfoIoctl(POVS_VPORT_GET vportGet,
     RtlZeroMemory(extInfo, sizeof (POVS_VPORT_EXT_INFO));
     NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock, &lockState, 0);
     if (vportGet->portNo == 0) {
-        StringCbLengthA(vportGet->name, OVS_MAX_PORT_NAME_LENGTH - 1, &len);
         vport = OvsFindVportByHvNameA(gOvsSwitchContext, vportGet->name);
         if (vport == NULL) {
             /* If the port is not a Hyper-V port and it has been added earlier,

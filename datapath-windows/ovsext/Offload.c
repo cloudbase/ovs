@@ -460,7 +460,7 @@ CalculateChecksumNB(const PNET_BUFFER nb,
 
     firstMdlLen = MIN(firstMdlLen, packetLen);
     if (offset < firstMdlLen) {
-        src = (PUCHAR) MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority);
+        src = (PUCHAR) MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority | MdlMappingNoExecute);
         if (!src) {
             return 0;
         }
@@ -485,7 +485,7 @@ CalculateChecksumNB(const PNET_BUFFER nb,
             mdlLen = MIN(mdlLen, packetLen);
         }
 
-        src = (PUCHAR)MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority);
+        src = (PUCHAR)MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority | MdlMappingNoExecute);
         if (!src) {
             return 0;
         }
@@ -504,7 +504,7 @@ CalculateChecksumNB(const PNET_BUFFER nb,
         csumDataLen -= csLen;
         currentMdl = NDIS_MDL_LINKAGE(currentMdl);
         if (csumDataLen && currentMdl) {
-            src = MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority);
+            src = MmGetSystemAddressForMdlSafe(currentMdl, LowPagePriority | MdlMappingNoExecute);
             if (!src) {
                 return 0;
             }
@@ -668,7 +668,7 @@ OvsApplySWChecksumOnNB(POVS_PACKET_HDR_INFO layers,
         packetLength = NET_BUFFER_DATA_LENGTH(curNb);
         curMdl = NET_BUFFER_CURRENT_MDL(curNb);
         bufferStart = (PUINT8)MmGetSystemAddressForMdlSafe(curMdl,
-                                                           LowPagePriority);
+                                                           LowPagePriority | MdlMappingNoExecute);
         if (!bufferStart) {
             return NDIS_STATUS_RESOURCES;
         }
