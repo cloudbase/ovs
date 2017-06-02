@@ -128,8 +128,8 @@ put_encapsulation(enum mf_field_id mff_ovn_geneve,
         put_load(outport, mff_ovn_geneve, 0, 32, ofpacts);
         put_move(MFF_LOG_INPORT, 0, mff_ovn_geneve, 16, 15, ofpacts);
     } else if (tun->type == STT) {
-        put_load(datapath->tunnel_key | (outport << 24), MFF_TUN_ID, 0, 64,
-                 ofpacts);
+        put_load(datapath->tunnel_key | ((uint64_t) outport << 24),
+                 MFF_TUN_ID, 0, 64, ofpacts);
         put_move(MFF_LOG_INPORT, 0, MFF_TUN_ID, 40, 15, ofpacts);
     } else if (tun->type == VXLAN) {
         put_load(datapath->tunnel_key, MFF_TUN_ID, 0, 24, ofpacts);
@@ -370,8 +370,8 @@ consider_port_binding(enum mf_field_id mff_ovn_geneve,
         match_set_metadata(&match, htonll(dp_key));
         match_set_reg(&match, MFF_LOG_OUTPORT - MFF_REG0, port_key);
 
-        const char *distributed_port = smap_get(&binding->options,
-                                                "distributed-port");
+        const char *distributed_port = smap_get_def(&binding->options,
+                                                    "distributed-port", "");
         const struct sbrec_port_binding *distributed_binding
             = lport_lookup_by_name(lports, distributed_port);
 
