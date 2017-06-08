@@ -1831,6 +1831,11 @@ MapTunAttrToFlowPut(PNL_ATTR *keyAttrs,
                 NlAttrGetU16(tunAttrs[OVS_TUNNEL_KEY_ATTR_TP_DST]);
         }
 
+        if (tunAttrs[OVS_TUNNEL_KEY_ATTR_TP_SRC]) {
+            destKey->tunKey.src_port =
+                NlAttrGetU16(tunAttrs[OVS_TUNNEL_KEY_ATTR_TP_SRC]);
+        }
+
         if (tunAttrs[OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS]) {
         NTSTATUS status = OvsTunnelAttrToGeneveOptions(
                           tunAttrs[OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS],
