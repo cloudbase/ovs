@@ -632,9 +632,6 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 {
     NDIS_STATUS status = NDIS_STATUS_FAILURE;
     PNET_BUFFER_LIST newNbl = NULL;
-    UINT32 srcVportNo;
-    NDIS_SWITCH_NIC_INDEX srcNicIndex;
-    NDIS_SWITCH_PORT_ID srcPortId;
     POVS_BUFFER_CONTEXT ctx;
 
     /*
@@ -685,25 +682,12 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 
     if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
         ASSERT(newNbl);
-        /*
-         * Save the 'srcVportNo', 'srcPortId', 'srcNicIndex' so that
-         * this can be applied to the new NBL later on.
-         */
-        srcVportNo = switchFwdInfo.vport->portNo;
-        srcPortId = switchFwdInfo.vport->portId;
-        srcNicIndex = switchFwdInfo.vport->nicIndex;
-
+        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
+        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
-        status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
-                                      newNbl, srcVportNo, 0,
-                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                      ovsFwdCtx->completionList,
-                                      &ovsFwdCtx->layers, FALSE);
         ovsFwdCtx->curNbl = newNbl;
-        /* Update the forwarding detail for the new NBL */
-        ovsFwdCtx->fwdDetail->SourcePortId = srcPortId;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = srcNicIndex;
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {
@@ -1017,6 +1001,7 @@ OvsOutputBeforeSetAction(OvsForwardingContext *ovsFwdCtx)
      * XXX Head room needs to include the additional encap.
      * XXX copySize check is not considering multiple NBs.
      */
+    POVS_BUFFER_CONTEXT oldCtx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(ovsFwdCtx->curNbl);
     newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
                                0, 0, TRUE /*copy NBL info*/);
 
@@ -1046,6 +1031,10 @@ OvsOutputBeforeSetAction(OvsForwardingContext *ovsFwdCtx)
                                       NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
                                       ovsFwdCtx->completionList,
                                       &ovsFwdCtx->layers, FALSE);
+        if (oldCtx->mru) {
+            POVS_BUFFER_CONTEXT newCtx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(ovsFwdCtx->curNbl);
+            newCtx->mru = oldCtx->mru;
+        }
     }
 
     return status;
@@ -1074,6 +1063,8 @@ OvsPopFieldInPacketBuf(OvsForwardingContext *ovsFwdCtx,
     UINT32 packetLen, mdlLen;
     PNET_BUFFER_LIST newNbl;
     NDIS_STATUS status;
+
+    ASSERT(shiftOffset > ETH_ADDR_LENGTH);
 
     newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
                                0, 0, TRUE /* copy NBL info */);
@@ -1232,6 +1223,10 @@ OvsActionMplsPush(OvsForwardingContext *ovsFwdCtx,
     ASSERT(mdlLen >= MPLS_HLEN);
 
     ethHdr = (EthHdr *)(bufferStart + curMdlOffset);
+    if (ethHdr == NULL) {
+        ovsActionStats.noCopiedNbl++;
+        return NDIS_STATUS_RESOURCES;
+    }
     RtlMoveMemory(ethHdr, (UINT8*)ethHdr + MPLS_HLEN, sizeof(*ethHdr));
     ethHdr->Type = mpls->mpls_ethertype;
 
@@ -2360,7 +2355,8 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
     OvsInitForwardingCtx(&ovsFwdCtx, switchContext, curNbl,
                          srcPortNo, 0,
                          NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(curNbl),
-                         completionList, layers, FALSE);
+                         completionList, layers, TRUE);
+    ASSERT(ovsFwdCtx.switchContext);
     flow = OvsLookupFlow(&ovsFwdCtx.switchContext->datapath, key, &hash, FALSE);
     if (flow) {
         UINT32 level = OvsDeferredActionsLevelGet();
