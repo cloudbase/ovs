@@ -1449,6 +1449,10 @@ port_configure_rstp(const struct ofproto *ofproto, struct port *port,
         port_s->port_num = 0;
     }
 
+    /* Increment the port num counter, because we only support
+     * RSTP_MAX_PORTS rstp ports. */
+    (*port_num_counter)++;
+
     config_str = smap_get(&port->cfg->other_config, "rstp-path-cost");
     if (config_str) {
         port_s->path_cost = strtoul(config_str, NULL, 10);
@@ -3957,6 +3961,8 @@ bridge_aa_update_trunks(struct port *port, struct bridge_aa_vlan *m)
         /* Force reconfigure of the port. */
         port_configure(port);
     }
+
+    free(trunks);
 }
 
 static void
