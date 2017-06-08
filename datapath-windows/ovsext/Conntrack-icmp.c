@@ -79,6 +79,8 @@ OvsConntrackCreateIcmpEntry(UINT64 now)
         return NULL;
     }
 
+    conn->up = (OVS_CT_ENTRY) { 0 };
+
     conn->state = ICMPS_FIRST;
 
     OvsConntrackUpdateExpiration(&conn->up, now,
