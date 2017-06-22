@@ -298,7 +298,7 @@ query_netdev(const char *devname,
         }
     }
 
-    return error;
+    return 0;
 }
 
 static void
