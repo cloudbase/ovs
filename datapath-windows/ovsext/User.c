@@ -909,21 +909,21 @@ OvsCompletePacketHeader(UINT8 *packet,
             hdrInfoOut->udpCsumNeeded = 1;
         }
         if (hdrInfoOut->tcpCsumNeeded || hdrInfoOut->udpCsumNeeded) {
-#ifdef DBG
+//#ifdef DBG
             UINT16 sum, *ptr;
             UINT8 proto =
                 hdrInfoOut->tcpCsumNeeded ? IPPROTO_TCP : IPPROTO_UDP;
-#endif
+//#endif
             if (hdrInfoIn->isIPv4) {
                 PIPV4_HEADER ipHdr = (PIPV4_HEADER)(packet +
                                                     hdrInfoIn->l3Offset);
                 hdrInfoOut->l4PayLoad = (UINT16)(ntohs(ipHdr->TotalLength) -
                     (ipHdr->HeaderLength << 2));
-#ifdef DBG
+//#ifdef DBG
                 sum = IPPseudoChecksum((UINT32 *)&ipHdr->SourceAddress,
                     (UINT32 *)&ipHdr->DestinationAddress,
                     proto, hdrInfoOut->l4PayLoad);
-#endif
+//#endif
             } else {
                 PIPV6_HEADER ipv6Hdr = (PIPV6_HEADER)(packet +
                     hdrInfoIn->l3Offset);
@@ -932,18 +932,18 @@ OvsCompletePacketHeader(UINT8 *packet,
                     hdrInfoIn->l3Offset + sizeof(IPV6_HEADER)-
                     hdrInfoIn->l4Offset);
                 ASSERT(hdrInfoIn->isIPv6);
-#ifdef DBG
+//#ifdef DBG
                 sum = IPv6PseudoChecksum((UINT32 *)&ipv6Hdr->SourceAddress,
                     (UINT32 *)&ipv6Hdr->DestinationAddress,
                     proto, hdrInfoOut->l4PayLoad);
-#endif
+//#endif
             }
-#ifdef DBG
+//#ifdef DBG
             ptr = (UINT16 *)(packet + hdrInfoIn->l4Offset +
                 (hdrInfoOut->tcpCsumNeeded ?
             TCP_CSUM_OFFSET : UDP_CSUM_OFFSET));
             ASSERT(*ptr == sum);
-#endif
+//#endif
         }
     }
 }
