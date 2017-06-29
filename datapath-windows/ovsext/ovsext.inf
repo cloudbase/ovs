@@ -79,6 +79,6 @@ Description     = %OVSExt_Desc%
 DelService=OVSExt,0x200
 
 [Strings]
-OVS = "Open vSwitch"
+OVS = "Cloudbase Solutions Srl"
 OVSExt_Desc = "Cloudbase Open vSwitch Extension"
 OVSExt_HelpText = "Cloudbase Open vSwitch forwarding switch extension"
