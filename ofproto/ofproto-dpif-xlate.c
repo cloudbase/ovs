@@ -4776,13 +4776,12 @@ put_ct_label(const struct flow *flow, struct ofpbuf *odp_actions,
         struct {
             ovs_u128 key;
             ovs_u128 mask;
-        } *odp_ct_label;
+        } odp_ct_label;
 
-        odp_ct_label = nl_msg_put_unspec_uninit(odp_actions,
-                                                OVS_CT_ATTR_LABELS,
-                                                sizeof(*odp_ct_label));
-        odp_ct_label->key = ovs_u128_and(flow->ct_label, wc->masks.ct_label);
-        odp_ct_label->mask = wc->masks.ct_label;
+        odp_ct_label.key = ovs_u128_and(flow->ct_label, wc->masks.ct_label);
+        odp_ct_label.mask = wc->masks.ct_label;
+        nl_msg_put_unspec(odp_actions, OVS_CT_ATTR_LABELS,
+                          &odp_ct_label, sizeof odp_ct_label);
     }
 }
 
@@ -5766,7 +5765,6 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
 
         /* Set the bridge for post-recirculation processing if needed. */
         if (!uuid_equals(&ctx.xbridge->ofproto->uuid, &state->ofproto_uuid)) {
-            struct xlate_cfg *xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
             const struct xbridge *new_bridge
                 = xbridge_lookup_by_uuid(xcfg, &state->ofproto_uuid);
 

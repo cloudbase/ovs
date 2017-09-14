@@ -158,6 +158,7 @@ ofputil_match_from_ofp10_match(const struct ofp10_match *ofmatch,
     /* Initialize match->wc. */
     memset(&match->flow, 0, sizeof match->flow);
     ofputil_wildcard_from_ofpfw10(ofpfw, &match->wc);
+    memset(&match->tun_md, 0, sizeof match->tun_md);
 
     /* Initialize most of match->flow. */
     match->flow.nw_src = ofmatch->nw_src;
@@ -8756,6 +8757,7 @@ ofputil_pull_ofp11_buckets(struct ofpbuf *msg, size_t buckets_length,
         if (error) {
             ofpbuf_uninit(&ofpacts);
             ofputil_bucket_list_destroy(buckets);
+            free(bucket);
             return OFPERR_OFPGMFC_BAD_WATCH;
         }
         bucket->watch_group = ntohl(ob->watch_group);
@@ -9417,6 +9419,9 @@ ofputil_pull_ofp15_group_mod(struct ofpbuf *msg, enum ofp_version ofp_version,
     }
 
     bucket_list_len = ntohs(ogm->bucket_array_len);
+    if (bucket_list_len > msg->size) {
+        return OFPERR_OFPBRC_BAD_LEN;
+    }
     error = ofputil_pull_ofp15_buckets(msg, bucket_list_len, ofp_version,
                                        gm->type, &gm->buckets);
     if (error) {

@@ -270,6 +270,7 @@ rm -rf $RPM_BUILD_ROOT/%{_datadir}/openvswitch/python/
 install -d -m 0755 $RPM_BUILD_ROOT/%{_sharedstatedir}/openvswitch
 
 touch $RPM_BUILD_ROOT%{_sysconfdir}/openvswitch/conf.db
+touch $RPM_BUILD_ROOT%{_sysconfdir}/openvswitch/.conf.db.~lock~
 touch $RPM_BUILD_ROOT%{_sysconfdir}/openvswitch/system-id.conf
 
 install -p -m 644 -D selinux/openvswitch-custom.pp \
@@ -280,6 +281,10 @@ install -p -m 0644 rhel/usr_lib_firewalld_services_ovn-central-firewall-service.
         $RPM_BUILD_ROOT%{_prefix}/lib/firewalld/services/ovn-central-firewall-service.xml
 install -p -m 0644 rhel/usr_lib_firewalld_services_ovn-host-firewall-service.xml \
         $RPM_BUILD_ROOT%{_prefix}/lib/firewalld/services/ovn-host-firewall-service.xml
+
+install -d -m 0755 $RPM_BUILD_ROOT%{_prefix}/lib/ocf/resource.d/ovn
+ln -s %{_datadir}/openvswitch/scripts/ovndb-servers.ocf \
+      $RPM_BUILD_ROOT%{_prefix}/lib/ocf/resource.d/ovn/ovndb-servers
 
 # remove unpackaged files
 rm -f $RPM_BUILD_ROOT%{_bindir}/ovs-parse-backtrace \
@@ -359,10 +364,6 @@ rm -rf $RPM_BUILD_ROOT
     fi
 %endif
 
-%post ovn-common
-mkdir -p /usr/lib/ocf/resource.d/ovn
-ln -sf %{_datadir}/openvswitch/scripts/ovndb-servers.ocf /usr/lib/ocf/resource.d/ovn/ovndb-servers
-
 %post ovn-central
 %if 0%{?systemd_post:1}
     %systemd_post ovn-northd.service
@@ -402,12 +403,6 @@ ln -sf %{_datadir}/openvswitch/scripts/ovndb-servers.ocf /usr/lib/ocf/resource.d
 %else
     /bin/systemctl daemon-reload >/dev/null 2>&1 || :
 %endif
-
-%postun ovn-common
-if [ $1 -eq 0 ] ; then
-    # Package removal, not upgrade
-    rm -rf /usr/lib/ocf/resource.d/ovn
-fi
 
 %postun ovn-central
 %if 0%{?systemd_postun:1}
@@ -478,6 +473,7 @@ fi
 %{_sysconfdir}/bash_completion.d/ovs-vsctl-bashcomp.bash
 %dir %{_sysconfdir}/openvswitch
 %config %ghost %{_sysconfdir}/openvswitch/conf.db
+%ghost %{_sysconfdir}/openvswitch/.conf.db.~lock~
 %config %ghost %{_sysconfdir}/openvswitch/system-id.conf
 %config(noreplace) %{_sysconfdir}/sysconfig/openvswitch
 %config(noreplace) %{_sysconfdir}/logrotate.d/openvswitch
@@ -553,6 +549,7 @@ fi
 %{_mandir}/man8/ovn-sbctl.8*
 %{_mandir}/man5/ovn-nb.5*
 %{_mandir}/man5/ovn-sb.5*
+%{_prefix}/lib/ocf/resource.d/ovn/ovndb-servers
 
 %files ovn-central
 %{_bindir}/ovn-northd

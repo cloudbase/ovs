@@ -2336,14 +2336,14 @@ iface_refresh_stats(struct iface *iface)
     IFACE_STAT(rx_128_to_255_packets,   "rx_128_to_255_packets")    \
     IFACE_STAT(rx_256_to_511_packets,   "rx_256_to_511_packets")    \
     IFACE_STAT(rx_512_to_1023_packets,  "rx_512_to_1023_packets")   \
-    IFACE_STAT(rx_1024_to_1522_packets, "rx_1024_to_1518_packets")  \
+    IFACE_STAT(rx_1024_to_1522_packets, "rx_1024_to_1522_packets")  \
     IFACE_STAT(rx_1523_to_max_packets,  "rx_1523_to_max_packets")   \
     IFACE_STAT(tx_1_to_64_packets,      "tx_1_to_64_packets")       \
     IFACE_STAT(tx_65_to_127_packets,    "tx_65_to_127_packets")     \
     IFACE_STAT(tx_128_to_255_packets,   "tx_128_to_255_packets")    \
     IFACE_STAT(tx_256_to_511_packets,   "tx_256_to_511_packets")    \
     IFACE_STAT(tx_512_to_1023_packets,  "tx_512_to_1023_packets")   \
-    IFACE_STAT(tx_1024_to_1522_packets, "tx_1024_to_1518_packets")  \
+    IFACE_STAT(tx_1024_to_1522_packets, "tx_1024_to_1522_packets")  \
     IFACE_STAT(tx_1523_to_max_packets,  "tx_1523_to_max_packets")   \
     IFACE_STAT(tx_multicast_packets,    "tx_multicast_packets")     \
     IFACE_STAT(rx_broadcast_packets,    "rx_broadcast_packets")     \
@@ -3864,7 +3864,7 @@ bridge_configure_aa(struct bridge *br)
         union ovsdb_atom atom;
 
         atom.integer = m->isid;
-        if (ovsdb_datum_find_key(mc, &atom, OVSDB_TYPE_UUID) == UINT_MAX) {
+        if (ovsdb_datum_find_key(mc, &atom, OVSDB_TYPE_INTEGER) == UINT_MAX) {
             VLOG_INFO("Deleting isid=%"PRIu32", vlan=%"PRIu16,
                       m->isid, m->vlan);
             bridge_aa_mapping_destroy(m);

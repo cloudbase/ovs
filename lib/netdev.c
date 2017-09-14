@@ -447,7 +447,11 @@ netdev_set_config(struct netdev *netdev, const struct smap *args, char **errp)
                           "%s: could not set configuration (%s)",
                           netdev_get_name(netdev), ovs_strerror(error));
             if (verbose_error) {
-                *errp = verbose_error;
+                if (errp) {
+                    *errp = verbose_error;
+                } else {
+                    free(verbose_error);
+                }
             }
         }
         return error;
@@ -1909,7 +1913,7 @@ netdev_get_addrs(const char dev[], struct in6_addr **paddr,
     }
 
     for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr != NULL) {
+        if (ifa->ifa_addr && ifa->ifa_name && ifa->ifa_netmask) {
             int family;
 
             family = ifa->ifa_addr->sa_family;
@@ -1930,7 +1934,8 @@ netdev_get_addrs(const char dev[], struct in6_addr **paddr,
     for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
         int family;
 
-        if (strncmp(ifa->ifa_name, dev, IFNAMSIZ) || ifa->ifa_addr == NULL) {
+        if (!ifa->ifa_name || !ifa->ifa_addr || !ifa->ifa_netmask
+            || strncmp(ifa->ifa_name, dev, IFNAMSIZ)) {
             continue;
         }
 

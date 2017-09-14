@@ -1937,10 +1937,10 @@ netdev_dpdk_vhost_get_stats(const struct netdev *netdev,
 
     rte_spinlock_lock(&dev->stats_lock);
     /* Supported Stats */
-    stats->rx_packets += dev->stats.rx_packets;
-    stats->tx_packets += dev->stats.tx_packets;
+    stats->rx_packets = dev->stats.rx_packets;
+    stats->tx_packets = dev->stats.tx_packets;
     stats->rx_dropped = dev->stats.rx_dropped;
-    stats->tx_dropped += dev->stats.tx_dropped;
+    stats->tx_dropped = dev->stats.tx_dropped;
     stats->multicast = dev->stats.multicast;
     stats->rx_bytes = dev->stats.rx_bytes;
     stats->tx_bytes = dev->stats.tx_bytes;
@@ -2148,8 +2148,8 @@ netdev_dpdk_policer_construct(uint32_t rate, uint32_t burst)
     rte_spinlock_init(&policer->policer_lock);
 
     /* rte_meter requires bytes so convert kbits rate and burst to bytes. */
-    rate_bytes = rate * 1000/8;
-    burst_bytes = burst * 1000/8;
+    rate_bytes = rate * 1000ULL / 8;
+    burst_bytes = burst * 1000ULL / 8;
 
     policer->app_srtcm_params.cir = rate_bytes;
     policer->app_srtcm_params.cbs = burst_bytes;
@@ -3186,7 +3186,11 @@ dpdk_vhost_reconfigure_helper(struct netdev_dpdk *dev)
     }
 
     if (netdev_dpdk_get_vid(dev) >= 0) {
-        dev->vhost_reconfigured = true;
+        if (dev->vhost_reconfigured == false) {
+            dev->vhost_reconfigured = true;
+            /* Carrier status may need updating. */
+            netdev_change_seq_changed(&dev->up);
+        }
     }
 
     return 0;

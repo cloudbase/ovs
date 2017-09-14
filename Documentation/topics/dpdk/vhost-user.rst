@@ -85,7 +85,7 @@ VM on the QEMU command line.
    ovsdb like so::
 
        $ ovs-vsctl --no-wait \
-           set Open_vSwitch . other_config:vhost-sock-dir=subdir`
+           set Open_vSwitch . other_config:vhost-sock-dir=subdir
 
 Once the vhost-user ports have been added to the switch, they must be added to
 the guest. There are two ways to do this: using QEMU directly, or using
@@ -222,8 +222,8 @@ vhost-user-client
 
 To use vhost-user-client ports, you must first add said ports to the switch.
 Like DPDK vhost-user ports, DPDK vhost-user-client ports can have mostly
-arbitrary. However, the name given to the port does not govern the name of the
-socket device. Instead, this must be configured by the user by way of a
+arbitrary names. However, the name given to the port does not govern the name
+of the socket device. Instead, this must be configured by the user by way of a
 ``vhost-server-path`` option. For vhost-user-client, the port type is
 ``dpdkvhostuserclient``::
 
@@ -278,9 +278,9 @@ To begin, instantiate a guest as described in :ref:`dpdk-vhost-user` or
 DPDK sources to VM and build DPDK::
 
     $ cd /root/dpdk/
-    $ wget http://fast.dpdk.org/rel/dpdk-16.11.1.tar.xz
-    $ tar xf dpdk-16.11.1.tar.xz
-    $ export DPDK_DIR=/root/dpdk/dpdk-stable-16.11.1
+    $ wget http://fast.dpdk.org/rel/dpdk-16.11.2.tar.xz
+    $ tar xf dpdk-16.11.2.tar.xz
+    $ export DPDK_DIR=/root/dpdk/dpdk-stable-16.11.2
     $ export DPDK_TARGET=x86_64-native-linuxapp-gcc
     $ export DPDK_BUILD=$DPDK_DIR/$DPDK_TARGET
     $ cd $DPDK_DIR
@@ -344,7 +344,7 @@ Sample XML
       <features>
         <acpi/>
         <apic/>
-      </feature>
+      </features>
       <cpu mode='host-model'>
         <model fallback='allow'/>
         <topology sockets='2' cores='1' threads='1'/>
@@ -364,7 +364,7 @@ Sample XML
         </disk>
         <disk type='dir' device='disk'>
           <driver name='qemu' type='fat'/>
-          <source dir='/usr/src/dpdk-stable-16.11.1'/>
+          <source dir='/usr/src/dpdk-stable-16.11.2'/>
           <target dev='vdb' bus='virtio'/>
           <readonly/>
         </disk>
