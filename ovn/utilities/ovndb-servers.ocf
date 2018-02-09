@@ -8,6 +8,8 @@
 : ${SB_MASTER_PORT_DEFAULT="6642"}
 : ${SB_MASTER_PROTO_DEFAULT="tcp"}
 : ${MANAGE_NORTHD_DEFAULT="no"}
+: ${INACTIVE_PROBE_DEFAULT="5000"}
+
 CRM_MASTER="${HA_SBIN_DIR}/crm_master -l reboot"
 CRM_ATTR_REPL_INFO="${HA_SBIN_DIR}/crm_attribute --type crm_config --name OVN_REPL_INFO -s ovn_ovsdb_master_server"
 OVN_CTL=${OCF_RESKEY_ovn_ctl:-${OVN_CTL_DEFAULT}}
@@ -17,13 +19,19 @@ NB_MASTER_PROTO=${OCF_RESKEY_nb_master_protocol:-${NB_MASTER_PROTO_DEFAULT}}
 SB_MASTER_PORT=${OCF_RESKEY_sb_master_port:-${SB_MASTER_PORT_DEFAULT}}
 SB_MASTER_PROTO=${OCF_RESKEY_sb_master_protocol:-${SB_MASTER_PROTO_DEFAULT}}
 MANAGE_NORTHD=${OCF_RESKEY_manage_northd:-${MANAGE_NORTHD_DEFAULT}}
+INACTIVE_PROBE=${OCF_RESKEY_inactive_probe_interval:-${INACTIVE_PROBE_DEFAULT}}
 
 # Invalid IP address is an address that can never exist in the network, as
 # mentioned in rfc-5737. The ovsdb servers connects to this IP address till
 # a master is promoted and the IPAddr2 resource is started.
 INVALID_IP_ADDRESS=192.0.2.254
 
-host_name=$(ocf_local_nodename)
+host_name=$(ocf_attribute_target)
+if [ "x$host_name" = "x" ]; then
+    # function ocf_attribute_target may not be available if the pacemaker
+    # version is old. Fall back to ocf_local_nodename.
+    host_name=$(ocf_local_nodename)
+fi
 : ${slave_score=5}
 : ${master_score=10}
 
@@ -101,6 +109,14 @@ ovsdb_server_metadata() {
   <content type="string" />
   </parameter>
 
+  <parameter name="inactive_probe_interval" unique="1">
+  <longdesc lang="en">
+  Inactive probe interval to set for ovsdb-server.
+  </longdesc>
+  <shortdesc lang="en">Set inactive probe interval</shortdesc>
+  <content type="string" />
+  </parameter>
+
   </parameters>
 
   <actions>
@@ -109,7 +125,10 @@ ovsdb_server_metadata() {
     <action name="stop"         timeout="20s" />
     <action name="promote"      timeout="50s" />
     <action name="demote"       timeout="50s" />
-    <action name="monitor"      timeout="20s"  depth="0" interval="10s" />
+    <action name="monitor"      timeout="20s"  depth="0" interval="10s"
+     role="Master" />
+    <action name="monitor"      timeout="20s"  depth="0" interval="30s"
+     role="Slave"/>
     <action name="meta-data"    timeout="5s" />
     <action name="validate-all" timeout="20s" />
   </actions>
@@ -128,7 +147,7 @@ ovsdb_server_notify() {
     fi
 
     ocf_log debug "ovndb_server: notified of event $type_op"
-    if [ "x${OCF_RESKEY_CRM_meta_notify_promote_uname}" = "x${host_name}" ]; then
+    if [ "x$(ovsdb_server_last_known_master)" = "x${host_name}" ]; then
         # Record ourselves so that the agent has a better chance of doing
         # the right thing at startup
         ocf_log debug "ovndb_server: $host_name is the master"
@@ -136,6 +155,22 @@ ovsdb_server_notify() {
         if [ "$MANAGE_NORTHD" = "yes" ]; then
             # Startup ovn-northd service
             ${OVN_CTL} --ovn-manage-ovsdb=no start_northd
+        fi
+
+        conn=`ovn-nbctl get NB_global . connections`
+        if [ "$conn" == "[]" ]
+        then
+            ovn-nbctl -- --id=@conn_uuid create Connection \
+target="p${NB_MASTER_PROTO}\:${NB_MASTER_PORT}\:${MASTER_IP}" \
+inactivity_probe=$INACTIVE_PROBE -- set NB_Global . connections=@conn_uuid
+        fi
+
+        conn=`ovn-sbctl get SB_global . connections`
+        if [ "$conn" == "[]" ]
+        then
+            ovn-sbctl -- --id=@conn_uuid create Connection \
+target="p${SB_MASTER_PROTO}\:${SB_MASTER_PORT}\:${MASTER_IP}" \
+inactivity_probe=$INACTIVE_PROBE -- set SB_Global . connections=@conn_uuid
         fi
 
     else
@@ -190,37 +225,26 @@ ovsdb_server_find_active_master() {
     esac
 }
 
-ovsdb_server_find_active_peers() {
-    # Do we have any peers that are not stopping
-    for peer in ${OCF_RESKEY_CRM_meta_notify_slave_uname}; do
-        found=0
-        for old in ${OCF_RESKEY_CRM_meta_notify_stop_uname}; do
-            if [ $peer = $old ]; then
-                found=1
-            fi
-        done
-        if [ $found = 0 ]; then
-            # Rely on master-max=1
-            # Pacemaker will demote any additional ones it finds before starting new copies
-            echo "$peer"
-            return
-        fi
-    done
+ovsdb_server_last_known_master()
+{
+    if [ -z "$MASTER_HOST" ]; then
+        MASTER_HOST="$(${CRM_ATTR_REPL_INFO} --query  -q  2>/dev/null)"
+    fi
+    echo "$MASTER_HOST"
 }
 
 ovsdb_server_master_update() {
-
     case $1 in
         $OCF_SUCCESS)
-        $CRM_MASTER -v ${slave_score};;
+        $CRM_MASTER -N $host_name -v ${slave_score};;
         $OCF_RUNNING_MASTER)
-            $CRM_MASTER -v ${master_score};;
+            $CRM_MASTER -N $host_name -v ${master_score};;
         #*) $CRM_MASTER -D;;
     esac
 }
 
 ovsdb_server_monitor() {
-    ovsdb_server_check_status
+    ovsdb_server_check_status $@
     rc=$?
 
     ovsdb_server_master_update $rc
@@ -235,8 +259,21 @@ ovsdb_server_check_status() {
         return $OCF_SUCCESS
     fi
 
+    check_northd="no"
+    if [ "$MANAGE_NORTHD" == "yes" ] && [ "$1" != "ignore_northd" ]; then
+        check_northd="yes"
+    fi
+
     if [[ $sb_status == "running/active" && $nb_status == "running/active" ]]; then
-        return $OCF_RUNNING_MASTER
+        if [ "$check_northd" == "yes" ]; then
+            # Verify if ovn-northd is running or not.
+            ${OVN_CTL} status_northd
+            if [ "$?" == "0" ] ; then
+                return $OCF_RUNNING_MASTER
+            fi
+        else
+            return $OCF_RUNNING_MASTER
+        fi
     fi
 
     # TODO: What about service running but not in either state above?
@@ -290,8 +327,13 @@ ovsdb_server_start() {
     $@ start_ovsdb
 
     while [ 1 = 1 ]; do
-        # It is important that we don't return until we're in a functional state
-        ovsdb_server_monitor
+        # It is important that we don't return until we're in a functional
+        # state. When checking the status of the ovsdb-server's ignore northd.
+        # It is possible that when the resource is restarted ovsdb-server's
+        # can be started as masters and ovn-northd would not have been started.
+        # ovn-northd will be started once a node is promoted to master and
+        # 'manage_northd' is set to yes.
+        ovsdb_server_monitor ignore_northd
         rc=$?
         case $rc in
             $OCF_SUCCESS)        return $rc;;
@@ -301,12 +343,17 @@ ovsdb_server_start() {
                 # When the start action is called, it is possible for the
                 # ovsdb-server's to be started as active. This could happen
                 # if the node owns the $MASTER_IP. At this point, pacemaker
-                # has not promoted this node yet. So return OCF_SUCCESS.
+                # has not promoted this node yet. Demote it and check for
+                # status again.
                 # Let pacemaker promote it in subsequent actions.
                 # As per the OCF guidelines, only monitor action should return
                 # OCF_RUNNING_MASTER.
                 # http://www.linux-ha.org/doc/dev-guides/_literal_ocf_running_master_literal_8.html
-                return $OCF_SUCCESS;;
+                ${OVN_CTL} demote_ovnnb \
+                --db-nb-sync-from-addr=${INVALID_IP_ADDRESS}
+                ${OVN_CTL} demote_ovnsb \
+                --db-sb-sync-from-addr=${INVALID_IP_ADDRESS}
+                ;;
             $OCF_ERR_GENERIC)    return $rc;;
             # Otherwise loop, waiting for the service to start, until
             # the cluster times the operation out
@@ -323,9 +370,13 @@ ovsdb_server_stop() {
         ${OVN_CTL} --ovn-manage-ovsdb=no stop_northd
     fi
 
-    ovsdb_server_check_status
+    ovsdb_server_check_status ignore_northd
     case $? in
-        $OCF_NOT_RUNNING)    return ${OCF_SUCCESS};;
+        $OCF_NOT_RUNNING)
+          # Even if one server is down, check_status returns NOT_RUNNING.
+          # So before returning call stop_ovsdb to be sure.
+          ${OVN_CTL} stop_ovsdb
+          return ${OCF_SUCCESS};;
     esac
 
     ${OVN_CTL} stop_ovsdb
@@ -333,7 +384,7 @@ ovsdb_server_stop() {
 
     while [ 1 = 1 ]; do
         # It is important that we don't return until we're stopped
-        ovsdb_server_check_status
+        ovsdb_server_check_status ignore_northd
         rc=$?
         case $rc in
         $OCF_SUCCESS)
@@ -354,7 +405,7 @@ ovsdb_server_stop() {
 }
 
 ovsdb_server_promote() {
-    ovsdb_server_check_status
+    ovsdb_server_check_status ignore_northd
     rc=$?
     case $rc in
         ${OCF_SUCCESS}) ;;
@@ -368,6 +419,11 @@ ovsdb_server_promote() {
     ${OVN_CTL} promote_ovnnb
     ${OVN_CTL} promote_ovnsb
 
+    if [ "$MANAGE_NORTHD" = "yes" ]; then
+        # Startup ovn-northd service
+        ${OVN_CTL} --ovn-manage-ovsdb=no start_northd
+    fi
+
     ocf_log debug "ovndb_servers: Promoting $host_name as the master"
     # Record ourselves so that the agent has a better chance of doing
     # the right thing at startup
@@ -377,6 +433,8 @@ ovsdb_server_promote() {
 }
 
 ovsdb_server_demote() {
+    # While demoting, check the status of ovn_northd.
+    # In case ovn_northd is not running, we should return OCF_NOT_RUNNING.
     ovsdb_server_check_status
     if [ $? = $OCF_NOT_RUNNING ]; then
         return $OCF_NOT_RUNNING
@@ -425,6 +483,10 @@ ovsdb_server_demote() {
         ${OVN_CTL} demote_ovnsb --db-sb-sync-from-addr=${INVALID_IP_ADDRESS}
     fi
 
+    if [ "$MANAGE_NORTHD" = "yes" ]; then
+        # Stop ovn-northd service
+        ${OVN_CTL} --ovn-manage-ovsdb=no stop_northd
+    fi
     ovsdb_server_master_update $OCF_SUCCESS
     return $OCF_SUCCESS
 }

@@ -91,6 +91,7 @@ TESTSUITE_AT = \
 	tests/vtep-ctl.at \
 	tests/auto-attach.at \
 	tests/ovn.at \
+	tests/ovn-northd.at \
 	tests/ovn-nbctl.at \
 	tests/ovn-sbctl.at \
 	tests/ovn-controller.at \
@@ -153,7 +154,7 @@ check-lcov: all $(check_DATA) clean-lcov
 	find . -name '*.gcda' | xargs -n1 rm -f
 	-set $(SHELL) '$(TESTSUITE)' -C tests AUTOTEST_PATH=$(AUTOTEST_PATH) $(TESTSUITEFLAGS); \
 	"$$@" || (test X'$(RECHECK)' = Xyes && "$$@" --recheck)
-	mkdir -p tests/lcov
+	$(MKDIR_P) tests/lcov
 	lcov $(LCOV_OPTS) -o tests/lcov/coverage.info
 	genhtml $(GENHTML_OPTS) -o tests/lcov tests/lcov/coverage.info
 	@echo "coverage report generated at tests/lcov/index.html"
@@ -206,7 +207,7 @@ valgrind_wrappers = \
 	tests/valgrind/test-vconn
 
 $(valgrind_wrappers): tests/valgrind-wrapper.in
-	@test -d tests/valgrind || mkdir tests/valgrind
+	@$(MKDIR_P) tests/valgrind
 	$(AM_V_GEN) sed -e 's,[@]wrap_program[@],$@,' \
 		$(top_srcdir)/tests/valgrind-wrapper.in > $@.tmp && \
 	chmod +x $@.tmp && \
