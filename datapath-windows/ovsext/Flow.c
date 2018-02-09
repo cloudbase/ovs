@@ -115,7 +115,7 @@ const NL_POLICY nlFlowKeyPolicy[] = {
     [OVS_KEY_ATTR_PRIORITY] = {.type = NL_A_UNSPEC, .minLen = 4,
                                .maxLen = 4, .optional = TRUE},
     [OVS_KEY_ATTR_IN_PORT] = {.type = NL_A_UNSPEC, .minLen = 4,
-                              .maxLen = 4, .optional = FALSE},
+                              .maxLen = 4, .optional = TRUE},
     [OVS_KEY_ATTR_ETHERNET] = {.type = NL_A_UNSPEC,
                                .minLen = sizeof(struct ovs_key_ethernet),
                                .maxLen = sizeof(struct ovs_key_ethernet),
