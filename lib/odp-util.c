@@ -1582,20 +1582,19 @@ parse_odp_action(const char *s, const struct simap *port_names,
     if (!strncmp(s, "set(", 4)) {
         size_t start_ofs;
         int retval;
-        struct nlattr mask[128 / sizeof(struct nlattr)];
-        struct ofpbuf maskbuf;
+        struct nlattr mask[1024 / sizeof(struct nlattr)];
+        struct ofpbuf maskbuf = OFPBUF_STUB_INITIALIZER(mask);
         struct nlattr *nested, *key;
         size_t size;
-
-        /* 'mask' is big enough to hold any key. */
-        ofpbuf_use_stack(&maskbuf, mask, sizeof mask);
 
         start_ofs = nl_msg_start_nested(actions, OVS_ACTION_ATTR_SET);
         retval = parse_odp_key_mask_attr(s + 4, port_names, actions, &maskbuf);
         if (retval < 0) {
+            ofpbuf_uninit(&maskbuf);
             return retval;
         }
         if (s[retval + 4] != ')') {
+            ofpbuf_uninit(&maskbuf);
             return -EINVAL;
         }
 
@@ -1613,6 +1612,7 @@ parse_odp_action(const char *s, const struct simap *port_names,
                 nested->nla_type = OVS_ACTION_ATTR_SET_MASKED;
             }
         }
+        ofpbuf_uninit(&maskbuf);
 
         nl_msg_end_nested(actions, start_ofs);
         return retval + 5;
@@ -2965,8 +2965,9 @@ generate_all_wildcard_mask(const struct attr_len_tbl tbl[], int max,
         size_t nested_mask;
 
         if (tbl[type].next) {
-            tbl = tbl[type].next;
-            max = tbl[type].next_max;
+            const struct attr_len_tbl *entry = &tbl[type];
+            tbl = entry->next;
+            max = entry->next_max;
         }
 
         nested_mask = nl_msg_start_nested(ofp, type);
@@ -3022,7 +3023,7 @@ scan_u128(const char *s_, ovs_u128 *value, ovs_u128 *mask)
                 error = parse_int_string(s, (uint8_t *)&be_mask,
                                          sizeof be_mask, &s);
                 if (error) {
-                    return error;
+                    return 0;
                 }
                 *mask = ntoh128(be_mask);
             } else {
@@ -4523,7 +4524,9 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
     size_t left;
     uint32_t wanted_attrs = 1u << OVS_KEY_ATTR_PRIORITY |
         1u << OVS_KEY_ATTR_SKB_MARK | 1u << OVS_KEY_ATTR_TUNNEL |
-        1u << OVS_KEY_ATTR_IN_PORT;
+        1u << OVS_KEY_ATTR_IN_PORT | 1u << OVS_KEY_ATTR_CT_STATE |
+        1u << OVS_KEY_ATTR_CT_ZONE | 1u << OVS_KEY_ATTR_CT_MARK |
+        1u << OVS_KEY_ATTR_CT_LABELS;
 
     pkt_metadata_init(md, ODPP_NONE);
 

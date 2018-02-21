@@ -829,7 +829,13 @@ netdev_set_etheraddr(struct netdev *netdev, const struct eth_addr mac)
 int
 netdev_get_etheraddr(const struct netdev *netdev, struct eth_addr *mac)
 {
-    return netdev->netdev_class->get_etheraddr(netdev, mac);
+    int error;
+
+    error = netdev->netdev_class->get_etheraddr(netdev, mac);
+    if (error) {
+        memset(mac, 0, sizeof *mac);
+    }
+    return error;
 }
 
 /* Returns the name of the network device that 'netdev' represents,
@@ -1890,7 +1896,7 @@ netdev_get_addrs(const char dev[], struct in6_addr **paddr,
     }
 
     for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr != NULL) {
+        if (ifa->ifa_addr && ifa->ifa_name && ifa->ifa_netmask) {
             int family;
 
             family = ifa->ifa_addr->sa_family;
@@ -1911,7 +1917,8 @@ netdev_get_addrs(const char dev[], struct in6_addr **paddr,
     for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
         int family;
 
-        if (strncmp(ifa->ifa_name, dev, IFNAMSIZ) || ifa->ifa_addr == NULL) {
+        if (!ifa->ifa_name || !ifa->ifa_addr || !ifa->ifa_netmask
+            || strncmp(ifa->ifa_name, dev, IFNAMSIZ)) {
             continue;
         }
 

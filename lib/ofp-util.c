@@ -1824,12 +1824,12 @@ ofputil_decode_meter_mod(const struct ofp_header *oh,
             mm->meter.flags & OFPMF13_PKTPS) {
             return OFPERR_OFPMMFC_BAD_FLAGS;
         }
-        mm->meter.bands = bands->data;
 
         error = ofputil_pull_bands(&b, b.size, &mm->meter.n_bands, bands);
         if (error) {
             return error;
         }
+        mm->meter.bands = bands->data;
     }
     return 0;
 }
@@ -8697,6 +8697,7 @@ ofputil_pull_ofp11_buckets(struct ofpbuf *msg, size_t buckets_length,
         if (!ob) {
             VLOG_WARN_RL(&bad_ofmsg_rl, "buckets end with %"PRIuSIZE" leftover bytes",
                          buckets_length);
+            ofputil_bucket_list_destroy(buckets);
             return OFPERR_OFPGMFC_BAD_BUCKET;
         }
 
@@ -8704,11 +8705,13 @@ ofputil_pull_ofp11_buckets(struct ofpbuf *msg, size_t buckets_length,
         if (ob_len < sizeof *ob) {
             VLOG_WARN_RL(&bad_ofmsg_rl, "OpenFlow message bucket length "
                          "%"PRIuSIZE" is not valid", ob_len);
+            ofputil_bucket_list_destroy(buckets);
             return OFPERR_OFPGMFC_BAD_BUCKET;
         } else if (ob_len > buckets_length) {
             VLOG_WARN_RL(&bad_ofmsg_rl, "OpenFlow message bucket length "
                          "%"PRIuSIZE" exceeds remaining buckets data size %"PRIuSIZE,
                          ob_len, buckets_length);
+            ofputil_bucket_list_destroy(buckets);
             return OFPERR_OFPGMFC_BAD_BUCKET;
         }
         buckets_length -= ob_len;
@@ -8728,6 +8731,7 @@ ofputil_pull_ofp11_buckets(struct ofpbuf *msg, size_t buckets_length,
         if (error) {
             ofpbuf_uninit(&ofpacts);
             ofputil_bucket_list_destroy(buckets);
+            free(bucket);
             return OFPERR_OFPGMFC_BAD_WATCH;
         }
         bucket->watch_group = ntohl(ob->watch_group);
@@ -9104,8 +9108,13 @@ ofputil_decode_ofp15_group_desc_reply(struct ofputil_group_desc *gd,
      * Such properties are valid for group desc replies so
      * claim that the group mod command is OFPGC15_ADD to
      * satisfy the check in parse_group_prop_ntr_selection_method() */
-    return parse_ofp15_group_properties(msg, gd->type, OFPGC15_ADD, &gd->props,
-                                        length - sizeof *ogds - bucket_list_len);
+    error = parse_ofp15_group_properties(
+        msg, gd->type, OFPGC15_ADD, &gd->props,
+        length - sizeof *ogds - bucket_list_len);
+    if (error) {
+        ofputil_bucket_list_destroy(&gd->buckets);
+    }
+    return error;
 }
 
 /* Converts a group description reply in 'msg' into an abstract
@@ -9342,6 +9351,7 @@ ofputil_pull_ofp11_group_mod(struct ofpbuf *msg, enum ofp_version ofp_version,
         && gm->command == OFPGC11_DELETE
         && !ovs_list_is_empty(&gm->buckets)) {
         error = OFPERR_OFPGMFC_INVALID_GROUP;
+        ofputil_bucket_list_destroy(&gm->buckets);
     }
 
     return error;
@@ -9393,51 +9403,26 @@ ofputil_pull_ofp15_group_mod(struct ofpbuf *msg, enum ofp_version ofp_version,
     }
 
     bucket_list_len = ntohs(ogm->bucket_array_len);
+    if (bucket_list_len > msg->size) {
+        return OFPERR_OFPBRC_BAD_LEN;
+    }
     error = ofputil_pull_ofp15_buckets(msg, bucket_list_len, ofp_version,
                                        gm->type, &gm->buckets);
     if (error) {
         return error;
     }
 
-    return parse_ofp15_group_properties(msg, gm->type, gm->command, &gm->props,
-                                        msg->size);
+    error = parse_ofp15_group_properties(msg, gm->type, gm->command,
+                                         &gm->props, msg->size);
+    if (error) {
+        ofputil_bucket_list_destroy(&gm->buckets);
+    }
+    return error;
 }
 
-/* Converts OpenFlow group mod message 'oh' into an abstract group mod in
- * 'gm'.  Returns 0 if successful, otherwise an OpenFlow error code. */
-enum ofperr
-ofputil_decode_group_mod(const struct ofp_header *oh,
-                         struct ofputil_group_mod *gm)
+static enum ofperr
+ofputil_check_group_mod(const struct ofputil_group_mod *gm)
 {
-    ofputil_init_group_properties(&gm->props);
-
-    enum ofp_version ofp_version = oh->version;
-    struct ofpbuf msg = ofpbuf_const_initializer(oh, ntohs(oh->length));
-    ofpraw_pull_assert(&msg);
-
-    enum ofperr err;
-    switch (ofp_version)
-    {
-    case OFP11_VERSION:
-    case OFP12_VERSION:
-    case OFP13_VERSION:
-    case OFP14_VERSION:
-        err = ofputil_pull_ofp11_group_mod(&msg, ofp_version, gm);
-        break;
-
-    case OFP15_VERSION:
-    case OFP16_VERSION:
-        err = ofputil_pull_ofp15_group_mod(&msg, ofp_version, gm);
-        break;
-
-    case OFP10_VERSION:
-    default:
-        OVS_NOT_REACHED();
-    }
-    if (err) {
-        return err;
-    }
-
     switch (gm->type) {
     case OFPGT11_INDIRECT:
         if (gm->command != OFPGC11_DELETE
@@ -9497,6 +9482,48 @@ ofputil_decode_group_mod(const struct ofp_header *oh,
     }
 
     return 0;
+}
+
+/* Converts OpenFlow group mod message 'oh' into an abstract group mod in
+ * 'gm'.  Returns 0 if successful, otherwise an OpenFlow error code. */
+enum ofperr
+ofputil_decode_group_mod(const struct ofp_header *oh,
+                         struct ofputil_group_mod *gm)
+{
+    ofputil_init_group_properties(&gm->props);
+
+    enum ofp_version ofp_version = oh->version;
+    struct ofpbuf msg = ofpbuf_const_initializer(oh, ntohs(oh->length));
+    ofpraw_pull_assert(&msg);
+
+    enum ofperr err;
+    switch (ofp_version)
+    {
+    case OFP11_VERSION:
+    case OFP12_VERSION:
+    case OFP13_VERSION:
+    case OFP14_VERSION:
+        err = ofputil_pull_ofp11_group_mod(&msg, ofp_version, gm);
+        break;
+
+    case OFP15_VERSION:
+    case OFP16_VERSION:
+        err = ofputil_pull_ofp15_group_mod(&msg, ofp_version, gm);
+        break;
+
+    case OFP10_VERSION:
+    default:
+        OVS_NOT_REACHED();
+    }
+    if (err) {
+        return err;
+    }
+
+    err = ofputil_check_group_mod(gm);
+    if (err) {
+        ofputil_uninit_group_mod(gm);
+    }
+    return err;
 }
 
 /* Destroys 'bms'. */
@@ -10009,14 +10036,21 @@ ofputil_decode_bundle_add(const struct ofp_header *oh,
                           enum ofptype *typep)
 {
     struct ofpbuf b = ofpbuf_const_initializer(oh, ntohs(oh->length));
+
+    /* Pull the outer ofp_header. */
     enum ofpraw raw = ofpraw_pull_assert(&b);
     ovs_assert(raw == OFPRAW_OFPT14_BUNDLE_ADD_MESSAGE
                || raw == OFPRAW_ONFT13_BUNDLE_ADD_MESSAGE);
 
+    /* Pull the bundle_ctrl header. */
     const struct ofp14_bundle_ctrl_msg *m = ofpbuf_pull(&b, sizeof *m);
     msg->bundle_id = ntohl(m->bundle_id);
     msg->flags = ntohs(m->flags);
 
+    /* Pull the inner ofp_header. */
+    if (b.size < sizeof(struct ofp_header)) {
+        return OFPERR_OFPBFC_MSG_BAD_LEN;
+    }
     msg->msg = b.data;
     if (msg->msg->version != oh->version) {
         return OFPERR_OFPBFC_BAD_VERSION;

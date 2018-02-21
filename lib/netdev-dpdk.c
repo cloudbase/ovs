@@ -1771,7 +1771,18 @@ netdev_dpdk_set_mtu(struct netdev *netdev, int mtu)
 {
     struct netdev_dpdk *dev = netdev_dpdk_cast(netdev);
 
-    if (MTU_TO_FRAME_LEN(mtu) > NETDEV_DPDK_MAX_PKT_LEN
+    /* XXX: Ensure that the overall frame length of the requested MTU does not
+     * surpass the NETDEV_DPDK_MAX_PKT_LEN. DPDK device drivers differ in how
+     * the L2 frame length is calculated for a given MTU when
+     * rte_eth_dev_set_mtu(mtu) is called e.g. i40e driver includes 2 x vlan
+     * headers, the em driver includes 1 x vlan header, the ixgbe driver does
+     * not include vlan headers. As such we should use
+     * MTU_TO_MAX_FRAME_LEN(mtu) which includes an additional 2 x vlan headers
+     * (8 bytes) for comparison. This avoids a failure later with
+     * rte_eth_dev_set_mtu(). This approach should be used until DPDK provides
+     * a method to retrieve the upper bound MTU for a given device.
+     */
+    if (MTU_TO_MAX_FRAME_LEN(mtu) > NETDEV_DPDK_MAX_PKT_LEN
         || mtu < ETHER_MIN_MTU) {
         VLOG_WARN("%s: unsupported MTU %d\n", dev->up.name, mtu);
         return EINVAL;
@@ -1800,10 +1811,10 @@ netdev_dpdk_vhost_get_stats(const struct netdev *netdev,
 
     rte_spinlock_lock(&dev->stats_lock);
     /* Supported Stats */
-    stats->rx_packets += dev->stats.rx_packets;
-    stats->tx_packets += dev->stats.tx_packets;
+    stats->rx_packets = dev->stats.rx_packets;
+    stats->tx_packets = dev->stats.tx_packets;
     stats->rx_dropped = dev->stats.rx_dropped;
-    stats->tx_dropped += dev->stats.tx_dropped;
+    stats->tx_dropped = dev->stats.tx_dropped;
     stats->multicast = dev->stats.multicast;
     stats->rx_bytes = dev->stats.rx_bytes;
     stats->tx_bytes = dev->stats.tx_bytes;
@@ -2011,8 +2022,8 @@ netdev_dpdk_policer_construct(uint32_t rate, uint32_t burst)
     rte_spinlock_init(&policer->policer_lock);
 
     /* rte_meter requires bytes so convert kbits rate and burst to bytes. */
-    rate_bytes = rate * 1000/8;
-    burst_bytes = burst * 1000/8;
+    rate_bytes = rate * 1000ULL / 8;
+    burst_bytes = burst * 1000ULL / 8;
 
     policer->app_srtcm_params.cir = rate_bytes;
     policer->app_srtcm_params.cbs = burst_bytes;
@@ -2021,6 +2032,7 @@ netdev_dpdk_policer_construct(uint32_t rate, uint32_t burst)
                                     &policer->app_srtcm_params);
     if(err) {
         VLOG_ERR("Could not create rte meter for ingress policer");
+        free(policer);
         return NULL;
     }
 
@@ -3021,7 +3033,11 @@ dpdk_vhost_reconfigure_helper(struct netdev_dpdk *dev)
     }
 
     if (netdev_dpdk_get_vid(dev) >= 0) {
-        dev->vhost_reconfigured = true;
+        if (dev->vhost_reconfigured == false) {
+            dev->vhost_reconfigured = true;
+            /* Carrier status may need updating. */
+            netdev_change_seq_changed(&dev->up);
+        }
     }
 }
 
