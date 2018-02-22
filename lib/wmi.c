@@ -740,8 +740,6 @@ create_wmi_port(char *name) {
 
     if (!get_first_element(penumerate, &pcls_obj)) {
         VLOG_WARN("Cloudbase Open vSwitch Extension is not enabled on any switch");
-        retval = false;
-        goto error;
     }
     wcscpy_s(internal_port_query, WMI_QUERY_COUNT,
              L"SELECT * FROM Msvm_VirtualEthernetSwitch WHERE Name = \"");
