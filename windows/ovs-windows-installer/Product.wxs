@@ -438,7 +438,7 @@
 
   <Fragment>
     <DirectoryRef Id="TARGETDIR">
-      <Merge Id="VC120Redist" SourceFile="Redist\Microsoft_VC120_CRT_x86.msm" DiskId="1" Language="0" />
+      <Merge Id="VC120Redist" SourceFile="Redist\Microsoft_VC120_CRT_x64.msm" DiskId="1" Language="0" />
     </DirectoryRef>
   </Fragment>
 
