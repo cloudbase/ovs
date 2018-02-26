@@ -569,11 +569,19 @@ AT_CHECK(
   [stderr], 
   [test ! -e pid || kill `cat pid`])
 cat stderr > output
-AT_CHECK_UNQUOTED(
-  [grep "failed to connect" output], [0],
-  [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Protocol error)
-], 
-  [ignore], [test ! -e pid || kill `cat pid`])
+if test "$IS_WIN32" = "yes"; then
+  AT_CHECK_UNQUOTED(
+    [grep "failed to connect" output], [0],
+    [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Unknown error)
+],
+    [ignore], [test ! -e pid || kill `cat pid`])
+else
+  AT_CHECK_UNQUOTED(
+    [grep "failed to connect" output], [0],
+    [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Protocol error)
+],
+    [ignore], [test ! -e pid || kill `cat pid`])
+fi
 # Check that when ciphers are not compatible, that a negotiation
 # failure occurs.
 AT_CHECK(
@@ -593,11 +601,19 @@ AT_CHECK(
   [stderr], 
   [test ! -e pid || kill `cat pid`])
 cat stderr > output
-AT_CHECK_UNQUOTED(
-  [grep "failed to connect" output], [0],
-  [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Protocol error)
-], 
-  [ignore], [test ! -e pid || kill `cat pid`])
+if test "$IS_WIN32" = "yes"; then
+  AT_CHECK_UNQUOTED(
+    [grep "failed to connect" output], [0],
+    [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Unknown error)
+],
+    [ignore], [test ! -e pid || kill `cat pid`])
+else
+  AT_CHECK_UNQUOTED(
+    [grep "failed to connect" output], [0],
+    [ovsdb-client: failed to connect to "ssl:127.0.0.1:$SSL_PORT" (Protocol error)
+],
+    [ignore], [test ! -e pid || kill `cat pid`])
+fi
 # The error message for being unable to negotiate a shared ciphersuite
 # is 'sslv3 alert handshake failure'. This is not the clearest message.
 AT_CHECK_UNQUOTED(
