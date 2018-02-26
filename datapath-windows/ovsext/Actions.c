@@ -625,9 +625,6 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 {
     NDIS_STATUS status = NDIS_STATUS_FAILURE;
     PNET_BUFFER_LIST newNbl = NULL;
-    UINT32 srcVportNo;
-    NDIS_SWITCH_NIC_INDEX srcNicIndex;
-    NDIS_SWITCH_PORT_ID srcPortId;
     POVS_BUFFER_CONTEXT ctx;
 
     /*
@@ -678,25 +675,14 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 
     if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
         ASSERT(newNbl);
-        /*
-         * Save the 'srcVportNo', 'srcPortId', 'srcNicIndex' so that
-         * this can be applied to the new NBL later on.
-         */
-        srcVportNo = switchFwdInfo.vport->portNo;
-        srcPortId = switchFwdInfo.vport->portId;
-        srcNicIndex = switchFwdInfo.vport->nicIndex;
+        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
+        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
 
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
-        status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
-                                      newNbl, srcVportNo, 0,
-                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                      ovsFwdCtx->completionList,
-                                      &ovsFwdCtx->layers, FALSE);
         ovsFwdCtx->curNbl = newNbl;
         /* Update the forwarding detail for the new NBL */
-        ovsFwdCtx->fwdDetail->SourcePortId = srcPortId;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = srcNicIndex;
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {

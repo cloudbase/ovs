@@ -635,12 +635,15 @@ OvsCalculateUDPChecksum(PNET_BUFFER_LIST curNbl,
         udpHdr->check = CalculateChecksumNB(curNb, (UINT16)l4Payload,
                                             layers->l4Offset);
         if (checkSum != udpHdr->check) {
+            udpHdr->check = 0;
             OVS_LOG_ERROR("UDP checksum incorrect, expected %u, got %u",
                           udpHdr->check, checkSum);
-            return NDIS_STATUS_INVALID_PACKET;
+            goto exit;
+            //return NDIS_STATUS_INVALID_PACKET;
         }
     }
 
+exit:
     csumInfo.Receive.UdpChecksumSucceeded = 1;
     NET_BUFFER_LIST_INFO(curNbl, TcpIpChecksumNetBufferListInfo) = csumInfo.Value;
     return NDIS_STATUS_SUCCESS;

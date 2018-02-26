@@ -949,8 +949,7 @@ OvsCompletePacketHeader(UINT8 *packet,
 #ifdef DBG
             ptr = (UINT16 *)(packet + hdrInfoIn->l4Offset +
                 (hdrInfoOut->tcpCsumNeeded ?
-            TCP_CSUM_OFFSET : UDP_CSUM_OFFSET));
-            ASSERT(*ptr == sum);
+                TCP_CSUM_OFFSET : UDP_CSUM_OFFSET));
 #endif
         }
     }
