@@ -17,6 +17,7 @@
 #define OVSDB_UTIL_H 1
 
 /* Database access utility functions. */
+void ovsdb_util_clear_column(struct ovsdb_row *, const char *column_name);
 struct ovsdb_datum *ovsdb_util_get_datum(struct ovsdb_row *row,
                                          const char *column_name,
                                          const enum ovsdb_atomic_type keytype,
@@ -35,9 +36,15 @@ const union ovsdb_atom *ovsdb_util_read_column(const struct ovsdb_row *row,
 bool ovsdb_util_read_integer_column(const struct ovsdb_row *row,
                                     const char *column_name,
                                     long long int *integerp);
+void ovsdb_util_write_integer_column(struct ovsdb_row *row,
+                                     const char *column_name,
+                                     long long int integer);
 bool ovsdb_util_read_string_column(const struct ovsdb_row *row,
                                    const char *column_name,
                                    const char **stringp);
+void ovsdb_util_write_string_column(struct ovsdb_row *row,
+                                    const char *column_name,
+                                    const char *string);
 void ovsdb_util_write_string_string_column(struct ovsdb_row *row,
                                            const char *column_name,
                                            char **keys, char **values,
@@ -48,5 +55,11 @@ bool ovsdb_util_read_bool_column(const struct ovsdb_row *row,
 void ovsdb_util_write_bool_column(struct ovsdb_row *row,
                                   const char *column_name,
                                   bool value);
+bool ovsdb_util_read_uuid_column(const struct ovsdb_row *row,
+                                 const char *column_name,
+                                 struct uuid *);
+void ovsdb_util_write_uuid_column(struct ovsdb_row *row,
+                                  const char *column_name,
+                                  const struct uuid *);
 
 #endif /* ovsdb/util.h */

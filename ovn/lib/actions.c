@@ -832,17 +832,6 @@ encode_ct_nat(const struct ovnact_ct_nat *cn,
     ct = ofpacts->header;
     if (cn->ip) {
         ct->flags |= NX_CT_F_COMMIT;
-    } else if (snat && ep->is_gateway_router) {
-        /* For performance reasons, we try to prevent additional
-         * recirculations.  ct_snat which is used in a gateway router
-         * does not need a recirculation.  ct_snat(IP) does need a
-         * recirculation.  ct_snat in a distributed router needs
-         * recirculation regardless of whether an IP address is
-         * specified.
-         * XXX Should we consider a method to let the actions specify
-         * whether an action needs recirculation if there are more use
-         * cases?. */
-        ct->recirc_table = NX_CT_RECIRC_NONE;
     }
     ofpact_finish(ofpacts, &ct->ofpact);
     ofpbuf_push_uninit(ofpacts, ct_offset);
@@ -1148,6 +1137,12 @@ parse_ND_NA(struct action_context *ctx)
 }
 
 static void
+parse_ND_NA_ROUTER(struct action_context *ctx)
+{
+    parse_nested_action(ctx, OVNACT_ND_NA_ROUTER, "nd_ns");
+}
+
+static void
 parse_ND_NS(struct action_context *ctx)
 {
     parse_nested_action(ctx, OVNACT_ND_NS, "ip6");
@@ -1178,6 +1173,12 @@ static void
 format_ND_NA(const struct ovnact_nest *nest, struct ds *s)
 {
     format_nested_action(nest, "nd_na", s);
+}
+
+static void
+format_ND_NA_ROUTER(const struct ovnact_nest *nest, struct ds *s)
+{
+    format_nested_action(nest, "nd_na_router", s);
 }
 
 static void
@@ -1230,6 +1231,15 @@ encode_ND_NA(const struct ovnact_nest *on,
              struct ofpbuf *ofpacts)
 {
     encode_nested_neighbor_actions(on, ep, ACTION_OPCODE_ND_NA, ofpacts);
+}
+
+static void
+encode_ND_NA_ROUTER(const struct ovnact_nest *on,
+             const struct ovnact_encode_params *ep,
+             struct ofpbuf *ofpacts)
+{
+    encode_nested_neighbor_actions(on, ep, ACTION_OPCODE_ND_NA_ROUTER,
+                                   ofpacts);
 }
 
 static void
@@ -2249,6 +2259,8 @@ parse_action(struct action_context *ctx)
         parse_ARP(ctx);
     } else if (lexer_match_id(ctx->lexer, "nd_na")) {
         parse_ND_NA(ctx);
+    } else if (lexer_match_id(ctx->lexer, "nd_na_router")) {
+        parse_ND_NA_ROUTER(ctx);
     } else if (lexer_match_id(ctx->lexer, "nd_ns")) {
         parse_ND_NS(ctx);
     } else if (lexer_match_id(ctx->lexer, "get_arp")) {

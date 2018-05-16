@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2012, 2013 Nicira, Inc.
+ * Copyright (c) 2009, 2010, 2012, 2013, 2017 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ struct jsonrpc_msg;
 struct pstream;
 struct reconnect_stats;
 struct stream;
+struct svec;
 
 /* API for a JSON-RPC stream. */
 
@@ -89,25 +90,34 @@ struct jsonrpc_msg *jsonrpc_create_reply(struct json *result,
 struct jsonrpc_msg *jsonrpc_create_error(struct json *error,
                                          const struct json *id);
 
+struct jsonrpc_msg *jsonrpc_msg_clone(const struct jsonrpc_msg *);
+
 const char *jsonrpc_msg_type_to_string(enum jsonrpc_msg_type);
 char *jsonrpc_msg_is_valid(const struct jsonrpc_msg *);
 void jsonrpc_msg_destroy(struct jsonrpc_msg *);
 
 char *jsonrpc_msg_from_json(struct json *, struct jsonrpc_msg **);
 struct json *jsonrpc_msg_to_json(struct jsonrpc_msg *);
+
+char *jsonrpc_msg_to_string(const struct jsonrpc_msg *);
 
 /* A JSON-RPC session with reconnection. */
 
 struct jsonrpc_session *jsonrpc_session_open(const char *name, bool retry);
+struct jsonrpc_session *jsonrpc_session_open_multiple(const struct svec *,
+                                                      bool retry);
 struct jsonrpc_session *jsonrpc_session_open_unreliably(struct jsonrpc *,
                                                         uint8_t);
 void jsonrpc_session_close(struct jsonrpc_session *);
+
+struct jsonrpc *jsonrpc_session_steal(struct jsonrpc_session *);
 
 void jsonrpc_session_run(struct jsonrpc_session *);
 void jsonrpc_session_wait(struct jsonrpc_session *);
 
 size_t jsonrpc_session_get_backlog(const struct jsonrpc_session *);
 const char *jsonrpc_session_get_name(const struct jsonrpc_session *);
+size_t jsonrpc_session_get_n_remotes(const struct jsonrpc_session *);
 
 int jsonrpc_session_send(struct jsonrpc_session *, struct jsonrpc_msg *);
 struct jsonrpc_msg *jsonrpc_session_recv(struct jsonrpc_session *);

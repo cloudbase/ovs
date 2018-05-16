@@ -9,6 +9,18 @@ m4_rename([AT_SETUP], [OVS_AT_SETUP])
 m4_define([AT_SETUP], [OVS_AT_SETUP($@)
 ovs_init
 ])
+
+dnl OVS_START_SHELL_HELPERS...OVS_END_SHELL_HELPERS may bracket shell
+dnl function definitions that invoke AT_CHECK and other Autotest macros
+dnl that can ordinarily be run only within AT_SETUP...AT_CLEANUP.
+m4_define([OVS_START_SHELL_HELPERS],
+  [m4_ifdef([AT_ingroup], [m4_fatal([$0: AT_SETUP and OVS_DEFINE_SHELL_HELPERS may not nest])])
+   m4_define([AT_ingroup])
+   m4_divert_push([PREPARE_TESTS])])
+m4_define([OVS_END_SHELL_HELPERS], [
+   m4_divert_pop([PREPARE_TESTS])
+   m4_undefine([AT_ingroup])])
+
 m4_divert_push([PREPARE_TESTS])
 [
 # Set ovs_base to the base directory in which the test is running and
@@ -122,6 +134,7 @@ if [ $? -eq 0 ]; then
     alias ovn-sbctl='OVS_SBCTL_TIMEOUT'
     alias ovn-nbctl='OVN_NBCTL_TIMEOUT'
     alias vtep-ctl='VTEP_CTL_TIMEOUT'
+    alias ovsdb-client='OVSDB_CLIENT_TIMEOUT'
     OVS_OFCTL_TIMEOUT () {
         command ovs-ofctl --timeout=$OVS_TIMEOUT "$@"
     }
@@ -136,6 +149,9 @@ if [ $? -eq 0 ]; then
     }
     VTEP_CTL_TIMEOUT () {
         command vtep-ctl --timeout=$OVS_TIMEOUT "$@"
+    }
+    OVSDB_CLIENT_TIMEOUT () {
+        command ovsdb-client --timeout=$OVS_TIMEOUT "$@"
     }
 fi
 
@@ -200,15 +216,36 @@ wc () {
 uuidfilt () {
     $PYTHON "$top_srcdir"/tests/uuidfilt.py "$@"
 }
+
+# run_as PROGRAM_NAME COMMAND [ARG...]
+#
+# Runs a command with argv[0] set to PROGRAM_NAME, if possible, in a
+# subshell.  Most utilities print argc[0] as part of their messages,
+# so this makes it easier to figure out which particular utility
+# prints a message if a bunch of identical processes are running.
+#
+# Not all shells support "exec -a NAME", so test for it.
+if (exec -a myname true); then
+    run_as () {
+	(exec -a "$@")
+    }
+else
+    run_as () {
+        shift
+	(exec "$@")
+    }
+fi
 ]
 m4_divert_pop([PREPARE_TESTS])
 
 m4_define([OVS_WAIT], [dnl
+AS_ECHO(["AS_ESCAPE([$3: waiting $4...])"]) >&AS_MESSAGE_LOG_FD
 ovs_wait_cond () {
     $1
 }
 if ovs_wait; then :
 else
+    AS_ECHO(["AS_ESCAPE([$3: wait failed])"]) >&AS_MESSAGE_LOG_FD
     $2
     AT_FAIL_IF([:])
 fi
@@ -220,7 +257,8 @@ dnl Executes shell COMMAND in a loop until it returns
 dnl zero return code.  If COMMAND did not return
 dnl zero code within reasonable time limit, then
 dnl the test fails.
-m4_define([OVS_WAIT_UNTIL], [OVS_WAIT([$1], [$2])])
+m4_define([OVS_WAIT_UNTIL],
+  [OVS_WAIT([$1], [$2], [AT_LINE], [until $1])])
 
 dnl OVS_WAIT_WHILE(COMMAND)
 dnl
@@ -229,7 +267,8 @@ dnl non-zero return code.  If COMMAND did not return
 dnl non-zero code within reasonable time limit, then
 dnl the test fails.
 m4_define([OVS_WAIT_WHILE],
-  [OVS_WAIT([if $1; then return 1; else return 0; fi], [$2])])
+  [OVS_WAIT([if $1; then return 1; else return 0; fi], [$2],
+            [AT_LINE], [while $1])])
 
 dnl OVS_APP_EXIT_AND_WAIT(DAEMON)
 dnl

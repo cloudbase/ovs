@@ -40,6 +40,7 @@
 #include "ovsdb/query.h"
 #include "ovsdb/row.h"
 #include "ovsdb/server.h"
+#include "ovsdb/storage.h"
 #include "ovsdb/table.h"
 #include "ovsdb/transaction.h"
 #include "ovsdb/trigger.h"
@@ -380,7 +381,7 @@ do_log_io(struct ovs_cmdl_context *ctx)
             error = ovsdb_log_write(target, json);
             json_destroy(json);
         } else if (!strcmp(command, "commit")) {
-            error = ovsdb_log_commit(target);
+            error = ovsdb_log_commit_block(target);
         } else if (!strcmp(command, "replace_start")) {
             ovs_assert(!replacement);
             error = ovsdb_log_replace_start(log, &replacement);
@@ -1484,7 +1485,7 @@ do_execute__(struct ovs_cmdl_context *ctx, bool ro)
     json = parse_json(ctx->argv[1]);
     check_ovsdb_error(ovsdb_schema_from_json(json, &schema));
     json_destroy(json);
-    db = ovsdb_create(schema);
+    db = ovsdb_create(schema, ovsdb_storage_create_unbacked());
 
     for (i = 2; i < ctx->argc; i++) {
         struct json *params, *result;
@@ -1522,14 +1523,14 @@ struct test_trigger {
 static void
 do_trigger_dump(struct test_trigger *t, long long int now, const char *title)
 {
-    struct json *result;
+    struct jsonrpc_msg *reply;
     char *s;
 
-    result = ovsdb_trigger_steal_result(&t->trigger);
-    s = json_to_string(result, JSSF_SORT);
+    reply = ovsdb_trigger_steal_reply(&t->trigger);
+    s = json_to_string(reply->result, JSSF_SORT);
     printf("t=%lld: trigger %d (%s): %s\n", now, t->number, title, s);
     free(s);
-    json_destroy(result);
+    jsonrpc_msg_destroy(reply);
     ovsdb_trigger_destroy(&t->trigger);
     free(t);
 }
@@ -1550,7 +1551,7 @@ do_trigger(struct ovs_cmdl_context *ctx)
     json = parse_json(ctx->argv[1]);
     check_ovsdb_error(ovsdb_schema_from_json(json, &schema));
     json_destroy(json);
-    db = ovsdb_create(schema);
+    db = ovsdb_create(schema, ovsdb_storage_create_unbacked());
 
     ovsdb_server_init(&server);
     ovsdb_server_add_db(&server, db);
@@ -1569,8 +1570,10 @@ do_trigger(struct ovs_cmdl_context *ctx)
             json_destroy(params);
         } else {
             struct test_trigger *t = xmalloc(sizeof *t);
-            ovsdb_trigger_init(&session, db, &t->trigger, params, now, false,
-                               NULL, NULL);
+            ovsdb_trigger_init(&session, db, &t->trigger,
+                               jsonrpc_create_request("transact", params,
+                                                      NULL),
+                               now, false, NULL, NULL);
             t->number = number++;
             if (ovsdb_trigger_is_complete(&t->trigger)) {
                 do_trigger_dump(t, now, "immediate");
@@ -1611,7 +1614,7 @@ static struct ovsdb_table *do_transact_table;
 static void
 do_transact_commit(struct ovs_cmdl_context *ctx OVS_UNUSED)
 {
-    ovsdb_error_destroy(ovsdb_txn_commit(do_transact_txn, false));
+    ovsdb_error_destroy(ovsdb_txn_replay_commit(do_transact_txn));
     do_transact_txn = NULL;
 }
 
@@ -1778,7 +1781,7 @@ do_transact(struct ovs_cmdl_context *ctx)
                       "       \"j\": {\"type\": \"integer\"}}}}}");
     check_ovsdb_error(ovsdb_schema_from_json(json, &schema));
     json_destroy(json);
-    do_transact_db = ovsdb_create(schema);
+    do_transact_db = ovsdb_create(schema, ovsdb_storage_create_unbacked());
     do_transact_table = ovsdb_get_table(do_transact_db, "mytable");
     ovs_assert(do_transact_table != NULL);
 

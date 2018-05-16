@@ -65,6 +65,7 @@ struct ovn_extend_table;
     OVNACT(CLONE,             ovnact_nest)            \
     OVNACT(ARP,               ovnact_nest)            \
     OVNACT(ND_NA,             ovnact_nest)            \
+    OVNACT(ND_NA_ROUTER,      ovnact_nest)            \
     OVNACT(GET_ARP,           ovnact_get_mac_bind)    \
     OVNACT(PUT_ARP,           ovnact_put_mac_bind)    \
     OVNACT(GET_ND,            ovnact_get_mac_bind)    \
@@ -429,6 +430,12 @@ enum action_opcode {
      * The actions, in OpenFlow 1.3 format, follow the action_header.
      */
     ACTION_OPCODE_ND_NS,
+
+    /* "nd_na_router { ...actions... }" with rso flag 'ND_RSO_ROUTER' set.
+        *
+        * The actions, in OpenFlow 1.3 format, follow the action_header.
+        */
+    ACTION_OPCODE_ND_NA_ROUTER,
 };
 
 /* Header. */
@@ -491,9 +498,6 @@ struct ovnact_encode_params {
 
     /* 'true' if the flow is for a switch. */
     bool is_switch;
-
-    /* 'true' if the flow is for a gateway router. */
-    bool is_gateway_router;
 
     /* A struct to figure out the group_id for group actions. */
     struct ovn_extend_table *group_table;

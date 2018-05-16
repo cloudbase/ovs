@@ -243,6 +243,8 @@ struct xlate_ctx {
                                  * true. */
     bool pending_encap;         /* True when waiting to commit a pending
                                  * encap action. */
+    bool pending_decap;         /* True when waiting to commit a pending
+                                 * decap action. */
     struct ofpbuf *encap_data;  /* May contain a pointer to an ofpbuf with
                                  * context for the datapath encap action.*/
 
@@ -3227,6 +3229,7 @@ propagate_tunnel_data_to_flow__(struct flow *dst_flow,
     dst_flow->ipv6_dst = src_flow->tunnel.ipv6_dst;
     dst_flow->ipv6_src = src_flow->tunnel.ipv6_src;
 
+    dst_flow->nw_frag = 0; /* Tunnel packets are unfragmented. */
     dst_flow->nw_tos = src_flow->tunnel.ip_tos;
     dst_flow->nw_ttl = src_flow->tunnel.ip_ttl;
     dst_flow->tp_dst = src_flow->tunnel.tp_dst;
@@ -3475,8 +3478,9 @@ xlate_commit_actions(struct xlate_ctx *ctx)
     ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
                                           ctx->odp_actions, ctx->wc,
                                           use_masked, ctx->pending_encap,
-                                          ctx->encap_data);
+                                          ctx->pending_decap, ctx->encap_data);
     ctx->pending_encap = false;
+    ctx->pending_decap = false;
     ofpbuf_delete(ctx->encap_data);
     ctx->encap_data = NULL;
 }
@@ -3805,8 +3809,12 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
             xlate_report(ctx, OFT_DETAIL, "output to native tunnel");
             is_native_tunnel = true;
         } else {
+            const char *tnl_type;
+
             xlate_report(ctx, OFT_DETAIL, "output to kernel tunnel");
-            commit_odp_tunnel_action(flow, &ctx->base_flow, ctx->odp_actions);
+            tnl_type = tnl_port_get_type(xport->ofport);
+            commit_odp_tunnel_action(flow, &ctx->base_flow,
+                                     ctx->odp_actions, tnl_type);
             flow->tunnel = flow_tnl; /* Restore tunnel metadata */
         }
     } else {
@@ -5174,9 +5182,11 @@ xlate_sample_action(struct xlate_ctx *ctx,
             tnl_port_send(xport->ofport, flow, ctx->wc);
             if (!ovs_native_tunneling_is_on(ctx->xbridge->ofproto)) {
                 struct flow_tnl flow_tnl = flow->tunnel;
+                const char *tnl_type;
 
+                tnl_type = tnl_port_get_type(xport->ofport);
                 commit_odp_tunnel_action(flow, &ctx->base_flow,
-                                         ctx->odp_actions);
+                                         ctx->odp_actions, tnl_type);
                 flow->tunnel = flow_tnl;
             }
         } else {
@@ -5300,6 +5310,9 @@ clone_xlate_actions(const struct ofpact *actions, size_t actions_len,
     if (reversible_actions(actions, actions_len) || is_last_action) {
         old_flow = ctx->xin->flow;
         do_xlate_actions(actions, actions_len, ctx, is_last_action);
+        if (!ctx->freezing) {
+            xlate_action_set(ctx);
+        }
         if (ctx->freezing) {
             finish_freezing(ctx);
         }
@@ -5321,6 +5334,9 @@ clone_xlate_actions(const struct ofpact *actions, size_t actions_len,
         /* Use clone action as datapath clone. */
         offset = nl_msg_start_nested(ctx->odp_actions, OVS_ACTION_ATTR_CLONE);
         do_xlate_actions(actions, actions_len, ctx, true);
+        if (!ctx->freezing) {
+            xlate_action_set(ctx);
+        }
         if (ctx->freezing) {
             finish_freezing(ctx);
         }
@@ -5334,6 +5350,9 @@ clone_xlate_actions(const struct ofpact *actions, size_t actions_len,
         ac_offset = nl_msg_start_nested(ctx->odp_actions,
                                         OVS_SAMPLE_ATTR_ACTIONS);
         do_xlate_actions(actions, actions_len, ctx, true);
+        if (!ctx->freezing) {
+            xlate_action_set(ctx);
+        }
         if (ctx->freezing) {
             finish_freezing(ctx);
         }
@@ -5971,6 +5990,7 @@ xlate_generic_decap_action(struct xlate_ctx *ctx,
                 break;
             }
             ctx->wc->masks.nsh.np = UINT8_MAX;
+            ctx->pending_decap = true;
             /* Trigger recirculation. */
             return true;
         default:
@@ -6840,6 +6860,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         .in_action_set = false,
         .in_packet_out = xin->in_packet_out,
         .pending_encap = false,
+        .pending_decap = false,
         .encap_data = NULL,
 
         .table_id = 0,
@@ -6977,10 +6998,14 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
             ctx.error = XLATE_INVALID_TUNNEL_METADATA;
             goto exit;
         }
-    } else if (!flow->tunnel.metadata.tab) {
+    } else if (!flow->tunnel.metadata.tab || xin->frozen_state) {
         /* If the original flow did not come in on a tunnel, then it won't have
          * FLOW_TNL_F_UDPIF set. However, we still need to have a metadata
          * table in case we generate tunnel actions. */
+        /* If the translation is from a frozen state, we use the latest
+         * TLV map to avoid segmentation fault in case the old TLV map is
+         * replaced by a new one.
+         * XXX: It is better to abort translation if the table is changed. */
         flow->tunnel.metadata.tab = ofproto_get_tun_tab(
             &ctx.xbridge->ofproto->up);
     }

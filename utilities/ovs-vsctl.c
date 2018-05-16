@@ -413,6 +413,7 @@ Switch commands:\n\
   emer-reset                  reset switch to known good state\n\
 \n\
 %s\
+%s\
 \n\
 Options:\n\
   --db=DATABASE               connect to DATABASE\n\
@@ -422,7 +423,8 @@ Options:\n\
   -t, --timeout=SECS          wait at most SECS seconds for ovs-vswitchd\n\
   --dry-run                   do not commit changes to database\n\
   --oneline                   print exactly one line of output per command\n",
-           program_name, program_name, ctl_get_db_cmd_usage(), ctl_default_db());
+           program_name, program_name, ctl_get_db_cmd_usage(),
+           ctl_list_db_tables_usage(), ctl_default_db());
     table_usage();
     vlog_usage();
     printf("\
@@ -1675,9 +1677,9 @@ cmd_del_port(struct ctl_context *ctx)
             if (port->bridge != bridge) {
                 if (port->bridge->parent == bridge) {
                     ctl_fatal("bridge %s does not have a port %s (although "
-                                "its parent bridge %s does)",
+                                "its child bridge %s does)",
                                 ctx->argv[1], ctx->argv[2],
-                                bridge->parent->name);
+                                port->bridge->name);
                 } else {
                     ctl_fatal("bridge %s does not have a port %s",
                                 ctx->argv[1], ctx->argv[2]);
@@ -2802,6 +2804,7 @@ static const struct ctl_command_syntax vsctl_commands[] = {
 static void
 vsctl_cmd_init(void)
 {
-    ctl_init(ovsrec_table_classes, tables, cmd_show_tables, vsctl_exit);
+    ctl_init(&ovsrec_idl_class, ovsrec_table_classes, tables, cmd_show_tables,
+             vsctl_exit);
     ctl_register_commands(vsctl_commands);
 }

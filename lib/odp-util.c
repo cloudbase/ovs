@@ -2726,7 +2726,7 @@ odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
 static void
 tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
                 const struct flow_tnl *tun_flow_key,
-                const struct ofpbuf *key_buf)
+                const struct ofpbuf *key_buf, const char *tnl_type)
 {
     size_t tun_key_ofs;
 
@@ -2767,7 +2767,14 @@ tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
     if (tun_key->flags & FLOW_TNL_F_OAM) {
         nl_msg_put_flag(a, OVS_TUNNEL_KEY_ATTR_OAM);
     }
-    if (tun_key->gbp_flags || tun_key->gbp_id) {
+
+    /* If tnl_type is set to a particular type of output tunnel,
+     * only put its relevant tunnel metadata to the nlattr.
+     * If tnl_type is NULL, put tunnel metadata according to the
+     * 'tun_key'.
+     */
+    if ((!tnl_type || !strcmp(tnl_type, "vxlan")) &&
+        (tun_key->gbp_flags || tun_key->gbp_id)) {
         size_t vxlan_opts_ofs;
 
         vxlan_opts_ofs = nl_msg_start_nested(a, OVS_TUNNEL_KEY_ATTR_VXLAN_OPTS);
@@ -2775,7 +2782,10 @@ tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
                        (tun_key->gbp_flags << 16) | ntohs(tun_key->gbp_id));
         nl_msg_end_nested(a, vxlan_opts_ofs);
     }
-    tun_metadata_to_geneve_nlattr(tun_key, tun_flow_key, key_buf, a);
+
+    if (!tnl_type || !strcmp(tnl_type, "geneve")) {
+        tun_metadata_to_geneve_nlattr(tun_key, tun_flow_key, key_buf, a);
+    }
 
     nl_msg_end_nested(a, tun_key_ofs);
 }
@@ -4008,6 +4018,7 @@ odp_flow_format(const struct nlattr *key, size_t key_len,
         const struct nlattr *a;
         unsigned int left;
         bool has_ethtype_key = false;
+        bool has_packet_type_key = false;
         struct ofpbuf ofp;
         bool first_field = true;
 
@@ -4028,6 +4039,8 @@ odp_flow_format(const struct nlattr *key, size_t key_len,
 
             if (attr_type == OVS_KEY_ATTR_ETHERTYPE) {
                 has_ethtype_key = true;
+            } else if (attr_type == OVS_KEY_ATTR_PACKET_TYPE) {
+                has_packet_type_key = true;
             }
 
             is_nested_attr = odp_key_attr_len(ovs_flow_key_attr_lens,
@@ -4050,6 +4063,34 @@ odp_flow_format(const struct nlattr *key, size_t key_len,
                 }
                 format_odp_key_attr__(a, ma, portno_names, ds, verbose);
                 first_field = false;
+            } else if (attr_type == OVS_KEY_ATTR_ETHERNET
+                       && !has_packet_type_key) {
+                /* This special case reflects differences between the kernel
+                 * and userspace datapaths regarding the root type of the
+                 * packet being matched (typically Ethernet but some tunnels
+                 * can encapsulate IPv4 etc.).  The kernel datapath does not
+                 * have an explicit way to indicate packet type; instead:
+                 *
+                 *   - If OVS_KEY_ATTR_ETHERNET is present, the packet is an
+                 *     Ethernet packet and OVS_KEY_ATTR_ETHERTYPE is the
+                 *     Ethertype encoded in the Ethernet header.
+                 *
+                 *   - If OVS_KEY_ATTR_ETHERNET is absent, then the packet's
+                 *     root type is that encoded in OVS_KEY_ATTR_ETHERTYPE
+                 *     (i.e. if OVS_KEY_ATTR_ETHERTYPE is 0x0800 then the
+                 *     packet is an IPv4 packet).
+                 *
+                 * Thus, if OVS_KEY_ATTR_ETHERNET is present, even if it is
+                 * all-wildcarded, it is important to print it.
+                 *
+                 * On the other hand, the userspace datapath supports
+                 * OVS_KEY_ATTR_PACKET_TYPE and uses it to indicate the packet
+                 * type.  Thus, if OVS_KEY_ATTR_PACKET_TYPE is present, we need
+                 * not print an all-wildcarded OVS_KEY_ATTR_ETHERNET. */
+                if (!first_field) {
+                    ds_put_char(ds, ',');
+                }
+                ds_put_cstr(ds, "eth()");
             }
             ofpbuf_clear(&ofp);
         }
@@ -5378,7 +5419,7 @@ odp_flow_key_from_flow__(const struct odp_flow_key_parms *parms,
 
     if (flow_tnl_dst_is_set(&flow->tunnel) || export_mask) {
         tun_key_to_attr(buf, &data->tunnel, &parms->flow->tunnel,
-                        parms->key_buf);
+                        parms->key_buf, NULL);
     }
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_SKB_MARK, data->pkt_mark);
@@ -5630,7 +5671,7 @@ odp_key_from_dp_packet(struct ofpbuf *buf, const struct dp_packet *packet)
     nl_msg_put_u32(buf, OVS_KEY_ATTR_PRIORITY, md->skb_priority);
 
     if (flow_tnl_dst_is_set(&md->tunnel)) {
-        tun_key_to_attr(buf, &md->tunnel, &md->tunnel, NULL);
+        tun_key_to_attr(buf, &md->tunnel, &md->tunnel, NULL, NULL);
     }
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_SKB_MARK, md->pkt_mark);
@@ -6661,10 +6702,10 @@ odp_put_push_eth_action(struct ofpbuf *odp_actions,
 
 void
 odp_put_tunnel_action(const struct flow_tnl *tunnel,
-                      struct ofpbuf *odp_actions)
+                      struct ofpbuf *odp_actions, const char *tnl_type)
 {
     size_t offset = nl_msg_start_nested(odp_actions, OVS_ACTION_ATTR_SET);
-    tun_key_to_attr(odp_actions, tunnel, tunnel, NULL);
+    tun_key_to_attr(odp_actions, tunnel, tunnel, NULL, tnl_type);
     nl_msg_end_nested(odp_actions, offset);
 }
 
@@ -6719,7 +6760,7 @@ commit_masked_set_action(struct ofpbuf *odp_actions,
  * only on tunneling information. */
 void
 commit_odp_tunnel_action(const struct flow *flow, struct flow *base,
-                         struct ofpbuf *odp_actions)
+                         struct ofpbuf *odp_actions, const char *tnl_type)
 {
     /* A valid IPV4_TUNNEL must have non-zero ip_dst; a valid IPv6 tunnel
      * must have non-zero ipv6_dst. */
@@ -6728,7 +6769,7 @@ commit_odp_tunnel_action(const struct flow *flow, struct flow *base,
             return;
         }
         memcpy(&base->tunnel, &flow->tunnel, sizeof base->tunnel);
-        odp_put_tunnel_action(&base->tunnel, odp_actions);
+        odp_put_tunnel_action(&base->tunnel, odp_actions, tnl_type);
     }
 }
 
@@ -6929,6 +6970,11 @@ commit_set_ipv4_action(const struct flow *flow, struct flow *base_flow,
     mask.ipv4_proto = 0;        /* Not writeable. */
     mask.ipv4_frag = 0;         /* Not writable. */
 
+    if (flow_tnl_dst_is_set(&base_flow->tunnel) &&
+        ((base_flow->nw_tos ^ flow->nw_tos) & IP_ECN_MASK) == 0) {
+        mask.ipv4_tos &= ~IP_ECN_MASK;
+    }
+
     if (commit(OVS_KEY_ATTR_IPV4, use_masked, &key, &base, &mask, sizeof key,
                odp_actions)) {
         put_ipv4_key(&base, base_flow, false);
@@ -6978,6 +7024,11 @@ commit_set_ipv6_action(const struct flow *flow, struct flow *base_flow,
     get_ipv6_key(&wc->masks, &mask, true);
     mask.ipv6_proto = 0;        /* Not writeable. */
     mask.ipv6_frag = 0;         /* Not writable. */
+
+    if (flow_tnl_dst_is_set(&base_flow->tunnel) &&
+        ((base_flow->nw_tos ^ flow->nw_tos) & IP_ECN_MASK) == 0) {
+        mask.ipv6_tclass &= ~IP_ECN_MASK;
+    }
 
     if (commit(OVS_KEY_ATTR_IPV6, use_masked, &key, &base, &mask, sizeof key,
                odp_actions)) {
@@ -7413,17 +7464,13 @@ odp_put_push_nsh_action(struct ofpbuf *odp_actions,
 }
 
 static void
-commit_packet_type_change(const struct flow *flow,
+commit_encap_decap_action(const struct flow *flow,
                           struct flow *base_flow,
                           struct ofpbuf *odp_actions,
                           struct flow_wildcards *wc,
-                          bool pending_encap,
+                          bool pending_encap, bool pending_decap,
                           struct ofpbuf *encap_data)
 {
-    if (flow->packet_type == base_flow->packet_type) {
-        return;
-    }
-
     if (pending_encap) {
         switch (ntohl(flow->packet_type)) {
         case PT_ETH: {
@@ -7448,7 +7495,7 @@ commit_packet_type_change(const struct flow *flow,
              * The check is done at action translation. */
             OVS_NOT_REACHED();
         }
-    } else {
+    } else if (pending_decap || flow->packet_type != base_flow->packet_type) {
         /* This is an explicit or implicit decap case. */
         if (pt_ns(flow->packet_type) == OFPHTN_ETHERTYPE &&
             base_flow->packet_type == htonl(PT_ETH)) {
@@ -7487,14 +7534,14 @@ commit_packet_type_change(const struct flow *flow,
 enum slow_path_reason
 commit_odp_actions(const struct flow *flow, struct flow *base,
                    struct ofpbuf *odp_actions, struct flow_wildcards *wc,
-                   bool use_masked, bool pending_encap,
+                   bool use_masked, bool pending_encap, bool pending_decap,
                    struct ofpbuf *encap_data)
 {
     enum slow_path_reason slow1, slow2;
     bool mpls_done = false;
 
-    commit_packet_type_change(flow, base, odp_actions, wc,
-                              pending_encap, encap_data);
+    commit_encap_decap_action(flow, base, odp_actions, wc,
+                              pending_encap, pending_decap, encap_data);
     commit_set_ether_action(flow, base, odp_actions, wc, use_masked);
     /* Make packet a non-MPLS packet before committing L3/4 actions,
      * which would otherwise do nothing. */

@@ -147,7 +147,7 @@ between one and the other.
 
 4. Create a container and start Faucet::
 
-     $ docker run -d --name faucet -v $(pwd)/inst/:/etc/ryu/faucet/ -v $(pwd)/inst/:/var/log/ryu/faucet/ -p 6653:6653 faucet/faucet
+     $ docker run -d --name faucet --restart=always -v $(pwd)/inst/:/etc/faucet/ -v $(pwd)/inst/:/var/log/faucet/ -p 6653:6653 -p 9302:9302 faucet/faucet
 
 5. Look in ``inst/faucet.log`` to verify that Faucet started.  It will
    probably start with an exception and traceback because we have not
@@ -1383,8 +1383,8 @@ Take a look at the Megaflow line and in particular the match on
 the megaflow matches on only the top 4 bits of the TCP destination
 port.  That works because::
 
-    80 (base 10) == 0001,1111,1001,0000 (base 2)
-  8080 (base 10) == 0000,0000,0101,0000 (base 2)
+    80 (base 10) == 0000,0000,0101,0000 (base 2)
+  8080 (base 10) == 0001,1111,1001,0000 (base 2)
 
 and so by matching on only the top 4 bits, rather than all 16, the OVS
 fast path can distinguish port 80 from port 8080.  This allows this

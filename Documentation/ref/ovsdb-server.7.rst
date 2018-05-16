@@ -146,6 +146,19 @@ notifications (see below) to the request, it must be unique among all active
 monitors.  ``ovsdb-server`` rejects attempt to create two monitors with the
 same identifier.
 
+4.1.7 Monitor Cancellation
+--------------------------
+
+When a database monitored by a session is removed, and database change
+awareness is enabled for the session (see Section 4.1.16), the database server
+spontaneously cancels all monitors (including conditional monitors described in
+Section 4.1.12) for the removed database.  For each canceled monitor, it issues
+a notification in the following form::
+
+    "method": "monitor_canceled"
+    "params": [<json-value>]
+    "id": null
+
 4.1.12 Monitor_cond
 -------------------
 
@@ -370,6 +383,71 @@ The response object contains the following members::
 <server_id> is JSON string that contains a UUID that uniquely identifies the
 running OVSDB server process.  A fresh UUID is generated when the process
 restarts.
+
+4.1.16 Database Change Awareness
+--------------------------------
+
+RFC 7047 does not provide a way for a client to find out about some kinds of
+configuration changes, such as about databases added or removed while a client
+is connected to the server, or databases changing between read/write and
+read-only due to a transition between active and backup roles.  Traditionally,
+``ovsdb-server`` disconnects all of its clients when this happens, because this
+prompts a well-written client to reassess what is available from the server
+when it reconnects.
+
+OVS 2.9 provides a way for clients to keep track of these kinds of changes, by
+monitoring the ``Database`` table in the ``_Server`` database introduced in
+this release (see ``ovsdb-server(5)`` for details).  By itself, this does not
+suppress ``ovsdb-server`` disconnection behavior, because a client might
+monitor this database without understanding its special semantics.  Instead,
+``ovsdb-server`` provides a special request::
+
+    "method": "set_db_change_aware"
+    "params": [<boolean>]
+    "id": <nonnull-json-value>
+
+If the boolean in the request is true, it suppresses the connection-closing
+behavior for the current connection, and false restores the default behavior.
+The reply is always the same::
+
+    "result": {}
+    "error": null
+    "id": same "id" as request
+
+4.1.17 Schema Conversion
+------------------------
+
+Open vSwitch 2.9 adds a new JSON-RPC request to convert an online database from
+one schema to another.  The request contains the following members::
+
+    "method": "convert"
+    "params": [<db-name>, <database-schema>]
+    "id": <nonnull-json-value>
+
+Upon receipt, the server converts database <db-name> to schema
+<database-schema>.  The schema's name must be <db-name>.  The conversion is
+atomic, consistent, isolated, and durable.  The data in the database must be
+valid when interpreted under <database-schema>, with only one exception: data
+for tables and columns that do not exist in the new schema are ignored.
+Columns that exist in <database-schema> but not in the database are set to
+their default values.  All of the new schema's constraints apply in full.
+
+If the conversion is successful, the server notifies clients that use the
+``set_db_change_aware`` RPC introduced in Open vSwitch 2.9 and cancels their
+outstanding transactions and monitors.  The server disconnects other clients,
+enabling them to notice the change when they reconnect.  The server sends the
+following reply::
+
+    "result": {}
+    "error": null
+    "id": same "id" as request
+
+If the conversion fails, then the server sends an error reply in the following
+form::
+
+    "result": null
+    "error": [<error>]
+    "id": same "id" as request
 
 5.1 Notation
 ------------

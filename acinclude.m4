@@ -151,10 +151,10 @@ AC_DEFUN([OVS_CHECK_LINUX], [
     AC_MSG_RESULT([$kversion])
 
     if test "$version" -ge 4; then
-       if test "$version" = 4 && test "$patchlevel" -le 13; then
+       if test "$version" = 4 && test "$patchlevel" -le 15; then
           : # Linux 4.x
        else
-          AC_ERROR([Linux kernel in $KBUILD is version $kversion, but version newer than 4.13.x is not supported (please refer to the FAQ for advice)])
+          AC_ERROR([Linux kernel in $KBUILD is version $kversion, but version newer than 4.15.x is not supported (please refer to the FAQ for advice)])
        fi
     elif test "$version" = 3 && test "$patchlevel" -ge 10; then
        : # Linux 3.x
@@ -533,6 +533,8 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
                         [OVS_GREP_IFELSE([$KSRC/include/net/dst_cache.h], [dst_cache],
                                          [OVS_DEFINE([USE_UPSTREAM_TUNNEL])])])])
 
+  OVS_GREP_IFELSE([$KSRC/include/net/dst_cache.h], [dst_cache],
+                  [OVS_DEFINE([USE_BUILTIN_DST_CACHE])])
   OVS_GREP_IFELSE([$KSRC/include/net/mpls.h], [mpls_hdr],
                   [OVS_DEFINE([MPLS_HEADER_IS_L3])])
   OVS_GREP_IFELSE([$KSRC/include/linux/net.h], [sock_create_kern.*net],
@@ -574,6 +576,8 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
 
   OVS_FIND_FIELD_IFELSE([$KSRC/include/linux/netdevice.h], [net_device],
                         [max_mtu])
+  OVS_FIND_FIELD_IFELSE([$KSRC/include/linux/netdevice.h], [net_device_ops_extended],
+                        [ndo_change_mtu], [OVS_DEFINE([HAVE_RHEL7_MAX_MTU])])
 
   OVS_GREP_IFELSE([$KSRC/include/linux/netfilter.h], [nf_hook_state])
   OVS_GREP_IFELSE([$KSRC/include/linux/netfilter.h], [nf_register_net_hook])
@@ -805,6 +809,9 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
   OVS_GREP_IFELSE([$KSRC/include/linux/timekeeping.h],
                   [ktime_get_ts64],
                   [OVS_DEFINE([HAVE_KTIME_GET_TS64])])
+  OVS_GREP_IFELSE([$KSRC/include/net/inet_frag.h],
+                  frag_percpu_counter_batch[],
+                  [OVS_DEFINE([HAVE_FRAG_PERCPU_COUNTER_BATCH])])
 
   if cmp -s datapath/linux/kcompat.h.new \
             datapath/linux/kcompat.h >/dev/null 2>&1; then

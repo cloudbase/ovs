@@ -79,7 +79,8 @@ static void send_garp_run(struct controller_ctx *ctx,
                           struct sset *active_tunnels);
 static void pinctrl_handle_nd_na(const struct flow *ip_flow,
                                  const struct match *md,
-                                 struct ofpbuf *userdata);
+                                 struct ofpbuf *userdata,
+                                 bool is_router);
 static void reload_metadata(struct ofpbuf *ofpacts,
                             const struct match *md);
 static void pinctrl_handle_put_nd_ra_opts(
@@ -927,6 +928,17 @@ pinctrl_handle_dns_lookup(
     } else {
         struct ovs_16aligned_ip6_hdr *nh = dp_packet_l3(&pkt_out);
         nh->ip6_plen = htons(new_l4_size);
+
+        /* IPv6 needs UDP checksum calculated */
+        uint32_t csum;
+        csum = packet_csum_pseudoheader6(nh);
+        csum = csum_continue(csum, out_udp, dp_packet_size(&pkt_out) -
+                             ((const unsigned char *)out_udp -
+                             (const unsigned char *)eth));
+        out_udp->udp_csum = csum_finish(csum);
+        if (!out_udp->udp_csum) {
+            out_udp->udp_csum = htons(0xffff);
+        }
     }
 
     pin->packet = dp_packet_data(&pkt_out);
@@ -990,7 +1002,11 @@ process_packet_in(const struct ofp_header *msg, struct controller_ctx *ctx)
         break;
 
     case ACTION_OPCODE_ND_NA:
-        pinctrl_handle_nd_na(&headers, &pin.flow_metadata, &userdata);
+        pinctrl_handle_nd_na(&headers, &pin.flow_metadata, &userdata, false);
+        break;
+
+    case ACTION_OPCODE_ND_NA_ROUTER:
+        pinctrl_handle_nd_na(&headers, &pin.flow_metadata, &userdata, true);
         break;
 
     case ACTION_OPCODE_PUT_ND:
@@ -1258,7 +1274,8 @@ ipv6_ra_send(struct ipv6_ra_state *ra)
     dp_packet_use_stub(&packet, packet_stub, sizeof packet_stub);
     compose_nd_ra(&packet, ra->config->eth_src, ra->config->eth_dst,
             &ra->config->ipv6_src, &ra->config->ipv6_dst,
-            255, ra->config->mo_flags, 0, 0, 0, ra->config->mtu);
+            255, ra->config->mo_flags, htons(IPV6_ND_RA_LIFETIME), 0, 0,
+            ra->config->mtu);
 
     for (int i = 0; i < ra->config->prefixes.n_ipv6_addrs; i++) {
         ovs_be128 addr;
@@ -2133,7 +2150,7 @@ reload_metadata(struct ofpbuf *ofpacts, const struct match *md)
 
 static void
 pinctrl_handle_nd_na(const struct flow *ip_flow, const struct match *md,
-                     struct ofpbuf *userdata)
+                     struct ofpbuf *userdata, bool is_router)
 {
     /* This action only works for IPv6 ND packets, and the switch should only
      * send us ND packets this way, but check here just to be sure. */
@@ -2147,13 +2164,15 @@ pinctrl_handle_nd_na(const struct flow *ip_flow, const struct match *md,
     struct dp_packet packet;
     dp_packet_use_stub(&packet, packet_stub, sizeof packet_stub);
 
-    /* xxx These flags are not exactly correct.  Look at section 7.2.4
-     * xxx of RFC 4861.  For example, we need to set ND_RSO_ROUTER for
-     * xxx router's interfaces and ND_RSO_SOLICITED only if it was
-     * xxx requested. */
+    /* These flags are not exactly correct.  Look at section 7.2.4
+     * of RFC 4861. */
+    uint32_t rso_flags = ND_RSO_SOLICITED | ND_RSO_OVERRIDE;
+    if (is_router) {
+        rso_flags |= ND_RSO_ROUTER;
+    }
     compose_nd_na(&packet, ip_flow->dl_dst, ip_flow->dl_src,
                   &ip_flow->nd_target, &ip_flow->ipv6_src,
-                  htonl(ND_RSO_SOLICITED | ND_RSO_OVERRIDE));
+                  htonl(rso_flags));
 
     /* Reload previous packet metadata and set actions from userdata. */
     set_actions_and_enqueue_msg(&packet, md, userdata);

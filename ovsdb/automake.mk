@@ -24,6 +24,12 @@ ovsdb_libovsdb_la_SOURCES = \
 	ovsdb/monitor.h \
 	ovsdb/query.c \
 	ovsdb/query.h \
+	ovsdb/raft.c \
+	ovsdb/raft.h \
+	ovsdb/raft-private.c \
+	ovsdb/raft-private.h \
+	ovsdb/raft-rpc.c \
+	ovsdb/raft-rpc.h \
 	ovsdb/rbac.c \
 	ovsdb/rbac.h \
 	ovsdb/replication.c \
@@ -32,6 +38,8 @@ ovsdb_libovsdb_la_SOURCES = \
 	ovsdb/row.h \
 	ovsdb/server.c \
 	ovsdb/server.h \
+	ovsdb/storage.c \
+	ovsdb/storage.h \
 	ovsdb/table.c \
 	ovsdb/table.h \
 	ovsdb/trigger.c \
@@ -109,3 +117,30 @@ EXTRA_DIST += ovsdb/ovsdb-dot.in ovsdb/dot2pic
 noinst_SCRIPTS += ovsdb/ovsdb-dot
 CLEANFILES += ovsdb/ovsdb-dot
 OVSDB_DOT = $(run_python) $(srcdir)/ovsdb/ovsdb-dot.in
+
+EXTRA_DIST += ovsdb/_server.ovsschema
+CLEANFILES += ovsdb/_server.ovsschema.inc
+ovsdb/ovsdb-server.$(OBJEXT): ovsdb/_server.ovsschema.inc
+ovsdb/_server.ovsschema.inc: ovsdb/_server.ovsschema $(srcdir)/build-aux/text2c
+	$(AM_V_GEN)$(run_python) $(srcdir)/build-aux/text2c < $< > $@.tmp
+	$(AM_V_at)mv $@.tmp $@
+
+# Version checking for _server.ovsschema.
+ALL_LOCAL += ovsdb/_server.ovsschema.stamp
+ovsdb/_server.ovsschema.stamp: ovsdb/_server.ovsschema
+	$(srcdir)/build-aux/cksum-schema-check $? $@
+CLEANFILES += ovsdb/_server.ovsschema.stamp
+
+# _Server schema documentation
+EXTRA_DIST += ovsdb/_server.xml
+CLEANFILES += ovsdb/ovsdb-server.5
+man_MANS += ovsdb/ovsdb-server.5
+ovsdb/ovsdb-server.5: \
+	ovsdb/ovsdb-doc ovsdb/_server.xml ovsdb/_server.ovsschema
+	$(AM_V_GEN)$(OVSDB_DOC) \
+		--version=$(VERSION) \
+		$(srcdir)/ovsdb/_server.ovsschema \
+		$(srcdir)/ovsdb/_server.xml > $@.tmp && \
+	mv $@.tmp $@
+
+EXTRA_DIST += ovsdb/TODO.rst

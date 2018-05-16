@@ -809,6 +809,7 @@ nl_parse_single_action(struct nlattr *action, struct tc_flower *flower)
     struct nlattr *stats_attrs[ARRAY_SIZE(stats_policy)];
     struct ovs_flow_stats *stats = &flower->stats;
     const struct gnet_stats_basic *bs;
+    int err = 0;
 
     if (!nl_parse_nested(action, act_policy, action_attrs,
                          ARRAY_SIZE(act_policy))) {
@@ -821,20 +822,24 @@ nl_parse_single_action(struct nlattr *action, struct tc_flower *flower)
     act_cookie = action_attrs[TCA_ACT_COOKIE];
 
     if (!strcmp(act_kind, "gact")) {
-        nl_parse_act_drop(act_options, flower);
+        err = nl_parse_act_drop(act_options, flower);
     } else if (!strcmp(act_kind, "mirred")) {
-        nl_parse_act_mirred(act_options, flower);
+        err = nl_parse_act_mirred(act_options, flower);
     } else if (!strcmp(act_kind, "vlan")) {
-        nl_parse_act_vlan(act_options, flower);
+        err = nl_parse_act_vlan(act_options, flower);
     } else if (!strcmp(act_kind, "tunnel_key")) {
-        nl_parse_act_tunnel_key(act_options, flower);
+        err = nl_parse_act_tunnel_key(act_options, flower);
     } else if (!strcmp(act_kind, "pedit")) {
-        nl_parse_act_pedit(act_options, flower);
+        err = nl_parse_act_pedit(act_options, flower);
     } else if (!strcmp(act_kind, "csum")) {
         nl_parse_act_csum(act_options, flower);
     } else {
         VLOG_ERR_RL(&error_rl, "unknown tc action kind: %s", act_kind);
-        return EINVAL;
+        err = EINVAL;
+    }
+
+    if (err) {
+        return err;
     }
 
     if (act_cookie) {
@@ -947,7 +952,7 @@ parse_netlink_to_tc_flower(struct ofpbuf *reply, struct tc_flower *flower)
 
     kind = nl_attr_get_string(ta[TCA_KIND]);
     if (strcmp(kind, "flower")) {
-        VLOG_ERR_RL(&error_rl, "failed to parse filter: %s", kind);
+        VLOG_DBG_ONCE("Unsupported filter: %s", kind);
         return EPROTO;
     }
 
@@ -1245,7 +1250,7 @@ csum_update_flag(struct tc_flower *flower,
      * eth(dst=<mac>),eth_type(0x0800) actions=set(ipv4(src=<new_ip>))
      * we need to force a more specific flow as this can, for example,
      * need a recalculation of icmp checksum if the packet that passes
-     * is icmp and tcp checksum if its tcp. */
+     * is ICMPv6 and tcp checksum if its tcp. */
 
     switch (htype) {
     case TCA_PEDIT_KEY_EX_HDR_TYPE_IP4:
@@ -1260,8 +1265,9 @@ csum_update_flag(struct tc_flower *flower,
         } else if (flower->key.ip_proto == IPPROTO_UDP) {
             flower->needs_full_ip_proto_mask = true;
             flower->csum_update_flags |= TCA_CSUM_UPDATE_FLAG_UDP;
-        } else if (flower->key.ip_proto == IPPROTO_ICMP
-                   || flower->key.ip_proto == IPPROTO_ICMPV6) {
+        } else if (flower->key.ip_proto == IPPROTO_ICMP) {
+            flower->needs_full_ip_proto_mask = true;
+        } else if (flower->key.ip_proto == IPPROTO_ICMPV6) {
             flower->needs_full_ip_proto_mask = true;
             flower->csum_update_flags |= TCA_CSUM_UPDATE_FLAG_ICMP;
         } else {
