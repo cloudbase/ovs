@@ -3326,8 +3326,6 @@ port_reconfigure(struct dp_netdev_port *port)
     struct netdev *netdev = port->netdev;
     int i, err;
 
-    port->need_reconfigure = false;
-
     /* Closes the existing 'rxq's. */
     for (i = 0; i < port->n_rxq; i++) {
         netdev_rxq_close(port->rxqs[i].rx);
@@ -3337,7 +3335,7 @@ port_reconfigure(struct dp_netdev_port *port)
     port->n_rxq = 0;
 
     /* Allows 'netdev' to apply the pending configuration changes. */
-    if (netdev_is_reconf_required(netdev)) {
+    if (netdev_is_reconf_required(netdev) || port->need_reconfigure) {
         err = netdev_reconfigure(netdev);
         if (err && (err != EOPNOTSUPP)) {
             VLOG_ERR("Failed to set interface %s new configuration",
@@ -3369,6 +3367,9 @@ port_reconfigure(struct dp_netdev_port *port)
 
     /* Parse affinity list to apply configuration for new queues. */
     dpif_netdev_port_set_rxq_affinity(port, port->rxq_affinity_list);
+
+    /* If reconfiguration was successful mark it as such, so we can use it */
+    port->need_reconfigure = false;
 
     return 0;
 }
@@ -5505,12 +5506,23 @@ dp_execute_cb(void *aux_, struct dp_packet_batch *packets_,
         break;
 
     case OVS_ACTION_ATTR_TUNNEL_PUSH:
-        if (*depth < MAX_RECIRC_DEPTH) {
-            dp_packet_batch_apply_cutlen(packets_);
-            push_tnl_action(pmd, a, packets_);
-            return;
+        /*
+         * XXX: 'may_steal' concept is broken here, because we're
+         *      unconditionally changing the packets just like for other PUSH_*
+         *      actions in 'odp_execute()'. 'false' value could be ignored,
+         *      because we could reach here only after clone, but we still need
+         *      to free the packets in case 'may_steal == true'.
+         */
+        if (may_steal) {
+            /* We're requested to push tunnel header, but also we need to take
+             * the ownership of these packets. Thus, we can avoid performing
+             * the action, because the caller will not use the result anyway.
+             * Just break to free the batch. */
+            break;
         }
-        break;
+        dp_packet_batch_apply_cutlen(packets_);
+        push_tnl_action(pmd, a, packets_);
+        return;
 
     case OVS_ACTION_ATTR_TUNNEL_POP:
         if (*depth < MAX_RECIRC_DEPTH) {
