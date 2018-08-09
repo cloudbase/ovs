@@ -5,6 +5,7 @@ EXTRA_DIST += \
 	datapath-windows/include/OvsDpInterfaceCtExt.h \
 	datapath-windows/misc/DriverRecommendedRules.ruleset \
 	datapath-windows/misc/OVS.psm1 \
+	datapath-windows/misc/HNSHelper.psm1 \
 	datapath-windows/misc/install.cmd \
 	datapath-windows/misc/uninstall.cmd \
 	datapath-windows/ovsext.sln \
