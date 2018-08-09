@@ -16,6 +16,7 @@ PTHREAD_TEMP_DIR=`echo "$(PTHREAD_LDFLAGS)" | sed 's|^.\(.*\).$:\1||'`
 windows_installer: all
 #Userspace files needed for the installer
 	cp -f $(top_srcdir)/datapath-windows/misc/OVS.psm1 windows/ovs-windows-installer/Services/OVS.psm1
+	cp -f $(top_srcdir)/datapath-windows/misc/HNSHelper.psm1 windows/ovs-windows-installer/Services/HNSHelper.psm1
 	cp -f $(top_srcdir)/vswitchd/vswitch.ovsschema windows/ovs-windows-installer/Services/vswitch.ovsschema
 	cp -f $(top_srcdir)/ovn/ovn-nb.ovsschema windows/ovs-windows-installer/Services/ovn-nb.ovsschema
 	cp -f $(top_srcdir)/ovn/ovn-sb.ovsschema windows/ovs-windows-installer/Services/ovn-sb.ovsschema

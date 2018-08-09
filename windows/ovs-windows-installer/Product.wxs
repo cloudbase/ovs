@@ -74,6 +74,7 @@
       <ComponentRef Id="OpenvSwitchDriver_Win8" />
       <ComponentRef Id="OpenvSwitchDriver_Win8.1" />
       <ComponentRef Id="OpenvSwitchPSModule" />
+      <ComponentRef Id="HelpersPSModule" />
     </Feature>
 
     <Feature Id="OVNHost" Title="OVN Host" Level="2" Absent="allow" InstallDefault="local" TypicalDefault="install" AllowAdvertise="no"
@@ -198,6 +199,7 @@
           <Directory Id="v1.0" Name="v1.0">
             <Directory Id="Modules" Name="Modules">
               <Directory Id="OVSPSMODULEDIR" Name="OVS" />
+              <Directory Id="CONTAINERSDIR" Name="HNSHelper" />
             </Directory>
           </Directory>
         </Directory>
@@ -206,6 +208,9 @@
 
     <Component Id="OpenvSwitchPSModule" Directory="OVSPSMODULEDIR" Guid="{91819E0F-36F9-44C1-BCA3-973AE991E386}" Win64="yes">
       <File Id="OVS.psm1" Source="Services\OVS.psm1" Checksum="yes" KeyPath="yes" />
+    </Component>
+    <Component Id="HelpersPSModule" Directory="CONTAINERSDIR" Guid="{91819E0F-36F9-44C1-DCA3-973AE991E386}" Win64="yes">
+      <File Id="HNSHelper.psm1" Source="Services\HNSHelper.psm1" Checksum="yes" KeyPath="yes" />
     </Component>
   </Fragment>
 
