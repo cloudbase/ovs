@@ -207,4 +207,80 @@ function Set-VMNetworkAdapterOVSPortDirect
     }
 }
 
-Export-ModuleMember -function Set-*, Get-*
+function Get-OVSEnabledHNSNetworks
+{
+    return (Get-HNSNetwork) | Where-Object {($_.Extensions.Id -eq '583cc151-73ec-4a6a-8b47-578297ad7623') -and ($_.Extensions.IsEnabled -eq 'True')}
+}
+
+function Add-OVSHNSInternalPort
+{
+    param
+    (
+        [parameter(Mandatory=$true)] [string] $PortName
+    )
+    $test = [array](Get-NetAdapter -IncludeHidden -InterfaceAlias "$PortName" -ErrorAction SilentlyContinue)
+    if (!($test -eq $null))
+    {
+        return
+    }
+    $test = [array]((Get-HnsEndpoint) | Where-Object {($_.Name -eq "$PortName")})
+    if (!($test -eq $null))
+    {
+        return
+    }
+    $a = [array](Get-OVSEnabledHNSNetworks).Id
+    if ($a.count -eq 0)
+    {
+        $a = [array]$env:OVS_ENABLED_NETWORK_ID
+        if ($a.count -eq 0)
+        {
+            $a = [array](Get-HNSNetwork | where {$_.type -eq "transparent"}).ID
+            if ($a.count -eq 0)
+            {
+                return
+            }
+        }
+    }
+    $temp = New-HnsEndpoint -NetworkId $a[0] -Name "$PortName"
+    Attach-HnsHostEndpoint $temp.Id 1
+    Rename-NetAdapter -IncludeHidden -InterfaceAlias "vEthernet ($PortName)" -NewName "$PortName" -ErrorAction SilentlyContinue
+    Remove-NetRoute -InterfaceAlias "$PortName" -Confirm:$false -ErrorAction SilentlyContinue
+    #Set-DnsClientServerAddress -InterfaceAlias "$PortName" -ResetServerAddresse  -ErrorAction SilentlyContinue
+    #Remove-NetIPAddress -Confirm:$false -InterfaceAlias "$PortName" -ErrorAction SilentlyContinue
+    #Set-NetIPInterface -Confirm:$false -InterfaceAlias "$PortName"  -Dhcp Enabled  -ErrorAction SilentlyContinue
+    Disable-NetAdapter -Confirm:$false -IncludeHidden -InterfaceAlias "$PortName" -ErrorAction SilentlyContinue
+}
+
+function Delete-OVSHNSInternalPort
+{
+    param
+    (
+        [parameter(Mandatory=$true)] [string] $PortName
+    )
+    $a = [array]((Get-HnsEndpoint) | Where-Object {($_.Name -eq "$PortName")})
+    $request = @{
+        SystemType  = "Host";
+    };
+
+    return Invoke-HNSRequest -Method DELETE -Type endpoints -Data (ConvertTo-Json $request ) -Id $a[0].ID
+}
+
+function Enable-OVSOnHNSNetwork
+{
+    param
+    (
+        [parameter(Mandatory=$true)] [string] $NetworkId
+    )
+    return Set-HnsSwitchExtension -NetworkId $NetworkId -ExtensionId 583cc151-73ec-4a6a-8b47-578297ad7623 -state $True
+}
+
+function Disable-OVSOnHNSNetwork
+{
+    param
+    (
+        [parameter(Mandatory=$true)] [string] $NetworkId
+    )
+    return Set-HnsSwitchExtension -NetworkId $NetworkId -ExtensionId 583cc151-73ec-4a6a-8b47-578297ad7623 -state $False
+}
+
+Export-ModuleMember -function Set-*, Get-*, Enable-*, Disable-*, Add-*, Delete-*
