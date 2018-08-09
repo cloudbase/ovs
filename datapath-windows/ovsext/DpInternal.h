@@ -33,6 +33,7 @@ typedef struct _OVS_VPORT_GET {
     uint32_t dpNo;
     uint32_t portNo;
     char     name[OVS_MAX_PORT_NAME_LENGTH];
+    uint32_t type;
 } OVS_VPORT_GET, *POVS_VPORT_GET;
 
 #define OVS_MAX_VM_UUID_LEN 128

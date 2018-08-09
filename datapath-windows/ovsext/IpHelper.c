@@ -404,11 +404,21 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
             }
 
             if (gOvsSwitchContext != NULL && NT_SUCCESS(status)) {
+                WCHAR interfaceName2[IF_MAX_STRING_SIZE + 1];
+                BOOLEAN check = GetNormalizedPortW(interfaceName2, interfaceName, (UINT32)wcslen(interfaceName));
                 NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock,
                                       &lockState, 0);
                 *vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+                                               OVS_VPORT_TYPE_INTERNAL,
                                                interfaceName,
                                                len);
+                if (!*vport && check) {
+                    *vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+                                                   OVS_VPORT_TYPE_INTERNAL,
+                                                   interfaceName2,
+                                                   sizeof(WCHAR) *
+                                                   wcslen(interfaceName2));
+                }
                 NdisReleaseRWLock(gOvsSwitchContext->dispatchLock, &lockState);
             }
         }
@@ -614,17 +624,27 @@ OvsAddIpInterfaceNotification(PMIB_IPINTERFACE_ROW ipRow)
         InitializeListHead(&instance->link);
         ExInitializeResourceLite(&instance->lock);
         WCHAR interfaceName[IF_MAX_STRING_SIZE + 1];
+        WCHAR interfaceName2[IF_MAX_STRING_SIZE + 1];
         status = ConvertInterfaceLuidToAlias(&ipRow->InterfaceLuid,
                                              interfaceName,
                                              IF_MAX_STRING_SIZE + 1);
         if (gOvsSwitchContext == NULL || !NT_SUCCESS(status)) {
             goto error;
         }
+        BOOLEAN check = GetNormalizedPortW(interfaceName2, interfaceName, (UINT32)wcslen(interfaceName));
         NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock, &lockState, 0);
         POVS_VPORT_ENTRY vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+                                                       OVS_VPORT_TYPE_INTERNAL,
                                                        interfaceName,
                                                        sizeof(WCHAR) *
                                                        wcslen(interfaceName));
+        if (!vport && check) {
+            vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+                                          OVS_VPORT_TYPE_INTERNAL,
+                                          interfaceName2,
+                                          sizeof(WCHAR) *
+                                          wcslen(interfaceName2));
+        }
 
         if (vport != NULL) {
             RtlCopyMemory(&instance->netCfgId,
@@ -1381,10 +1401,12 @@ OvsInternalAdapterDown(UINT32 portNo,
     NdisAcquireSpinLock(&ovsIpHelperLock);
     InsertHeadList(&ovsIpHelperRequestList, &request->link);
     ovsNumIpHelperRequests++;
-    if (ovsNumIpHelperRequests == 1) {
+    if (ovsNumIpHelperRequests >= 1) {
+        NdisReleaseSpinLock(&ovsIpHelperLock);
         OvsWakeupIPHelper();
+    } else {
+        NdisReleaseSpinLock(&ovsIpHelperLock);
     }
-    NdisReleaseSpinLock(&ovsIpHelperLock);
 }
 
 
@@ -1410,7 +1432,7 @@ OvsInternalAdapterUp(UINT32 portNo,
     NdisAcquireSpinLock(&ovsIpHelperLock);
     InsertHeadList(&ovsIpHelperRequestList, &request->link);
     ovsNumIpHelperRequests++;
-    if (ovsNumIpHelperRequests == 1) {
+    if (ovsNumIpHelperRequests >= 1) {
         NdisReleaseSpinLock(&ovsIpHelperLock);
         OvsWakeupIPHelper();
     } else {
@@ -1543,10 +1565,12 @@ OvsEnqueueIpHelperRequest(POVS_IP_HELPER_REQUEST request)
         NdisAcquireSpinLock(&ovsIpHelperLock);
         InsertHeadList(&ovsIpHelperRequestList, &request->link);
         ovsNumIpHelperRequests++;
-        if (ovsNumIpHelperRequests == 1) {
+        if (ovsNumIpHelperRequests >= 1) {
+            NdisReleaseSpinLock(&ovsIpHelperLock);
             OvsWakeupIPHelper();
+        } else {
+            NdisReleaseSpinLock(&ovsIpHelperLock);
         }
-        NdisReleaseSpinLock(&ovsIpHelperLock);
         return STATUS_SUCCESS;
     }
 }

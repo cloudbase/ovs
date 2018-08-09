@@ -101,6 +101,23 @@ static NTSTATUS OvsConvertIfCountedStrToAnsiStr(PIF_COUNTED_STRING wStr,
                                                 CHAR *str,
                                                 UINT16 maxStrLen);
 
+OVS_VPORT_TYPE GetOvsPortType(NDIS_SWITCH_PORT_TYPE type)
+{
+    switch (type) {
+    case NdisSwitchPortTypeExternal:
+        return OVS_VPORT_TYPE_NETDEV;
+        break;
+    case NdisSwitchPortTypeInternal:
+        return OVS_VPORT_TYPE_INTERNAL;
+        break;
+    case NdisSwitchPortTypeSynthetic:
+    case NdisSwitchPortTypeEmulated:
+        return OVS_VPORT_TYPE_NETDEV;
+        break;
+    }
+    return 0;
+}
+
 /*
  * --------------------------------------------------------------------------
  *  Creates a Vport entry for a Hyper-V switch port. 'nicIndex' is typically
@@ -136,6 +153,7 @@ HvCreatePort(POVS_SWITCH_CONTEXT switchContext,
      * (and deleted) previously.
      */
     vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+                                  GetOvsPortType(portParam->PortType),
                                   portParam->PortFriendlyName.String,
                                   portParam->PortFriendlyName.Length);
     if (vport && vport->isAbsentOnHv == FALSE) {
@@ -370,6 +388,7 @@ HvCreateNic(POVS_SWITCH_CONTEXT switchContext,
             goto add_nic_done;
         }
         POVS_VPORT_ENTRY ovsVport = OvsFindVportByOvsName(switchContext,
+                                                          GetOvsPortType(nicParam->NicType - 1),
                                                           convertString);
         if (ovsVport != NULL) {
             ovsVport->nicState = nicParam->NicState;
@@ -800,6 +819,7 @@ OvsFindTunnelVportByPortType(POVS_SWITCH_CONTEXT switchContext,
 
 POVS_VPORT_ENTRY
 OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
+                      OVS_VPORT_TYPE ovsPortType,
                       PSTR name)
 {
     POVS_VPORT_ENTRY vport;
@@ -812,7 +832,8 @@ OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
 
     LIST_FORALL(head, link) {
         vport = CONTAINING_RECORD(link, OVS_VPORT_ENTRY, ovsNameLink);
-        if (!strcmp(name, vport->ovsName)) {
+        if (vport->ovsType == ovsPortType &&
+            !strcmp(name, vport->ovsName)) {
             return vport;
         }
     }
@@ -823,6 +844,7 @@ OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
 /* OvsFindVportByHvName: "name" is assumed to be null-terminated */
 POVS_VPORT_ENTRY
 OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
+                      OVS_VPORT_TYPE ovsPortType,
                       PWSTR wsName, SIZE_T wstrSize)
 {
     POVS_VPORT_ENTRY vport = NULL;
@@ -844,7 +866,8 @@ OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
              * If the string is NULL-terminated, the Length member does not
              * include the terminating NULL character.
              */
-            if (vport->portFriendlyName.Length == wstrSize &&
+            if (ovsPortType == vport->ovsType &&
+                vport->portFriendlyName.Length == wstrSize &&
                 RtlEqualMemory(wsName, vport->portFriendlyName.String,
                                vport->portFriendlyName.Length)) {
                 goto Cleanup;
@@ -880,6 +903,7 @@ Cleanup:
 
 POVS_VPORT_ENTRY
 OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
+                      OVS_VPORT_TYPE ovsPortType,
                       PSTR name)
 {
     POVS_VPORT_ENTRY vport = NULL;
@@ -895,7 +919,7 @@ OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
     for (i = 0; i < length; i++) {
         wsName[i] = name[i];
     }
-    vport = OvsFindVportByHvNameW(switchContext, wsName, wstrSize);
+    vport = OvsFindVportByHvNameW(switchContext, ovsPortType, wsName, wstrSize);
     OvsFreeMemoryWithTag(wsName, OVS_VPORT_POOL_TAG);
     return vport;
 }
@@ -1141,11 +1165,10 @@ GetNICAlias(PNDIS_SWITCH_NIC_PARAMETERS nicParam,
     WCHAR interfaceName[IF_MAX_STRING_SIZE + 1];
     NET_LUID interfaceLuid;
     size_t len;
-
     if (nicParam->NicType == NdisSwitchNicTypeInternal) {
         RtlCopyMemory(portFriendlyName, &nicParam->NicFriendlyName,
                       sizeof nicParam->NicFriendlyName);
-    return status;
+        return status;
     }
 
     status = ConvertInterfaceGuidToLuid(&nicParam->NetCfgInstanceId,
@@ -1646,11 +1669,17 @@ OvsGetExtInfoIoctl(POVS_VPORT_GET vportGet,
     RtlZeroMemory(extInfo, sizeof (POVS_VPORT_EXT_INFO));
     NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock, &lockState, 0);
     if (vportGet->portNo == 0) {
-        vport = OvsFindVportByHvNameA(gOvsSwitchContext, vportGet->name);
+        vport = OvsFindVportByHvNameA(gOvsSwitchContext, 1, vportGet->name);
+        if (!vport) {
+            vport = OvsFindVportByHvNameA(gOvsSwitchContext, 2, vportGet->name);
+        }
         if (vport == NULL) {
             /* If the port is not a Hyper-V port and it has been added earlier,
              * we'll find it in 'ovsPortNameHashArray'. */
-            vport = OvsFindVportByOvsName(gOvsSwitchContext, vportGet->name);
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, 1, vportGet->name);
+            if (!vport) {
+                vport = OvsFindVportByOvsName(gOvsSwitchContext, 2, vportGet->name);
+            }
         }
     } else {
         vport = OvsFindVportByPortNo(gOvsSwitchContext, vportGet->portNo);
@@ -1750,6 +1779,8 @@ OvsGetNetdevCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     OVS_VPORT_EXT_INFO info;
 
     static const NL_POLICY ovsNetdevPolicy[] = {
+        [OVS_WIN_NETDEV_ATTR_TYPE] = { .type = NL_A_U32,
+                                       .optional = TRUE},
         [OVS_WIN_NETDEV_ATTR_NAME] = { .type = NL_A_STRING,
                                        .minLen = 2,
                                        .maxLen = IFNAMSIZ },
@@ -2092,6 +2123,7 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     NL_ERROR nlError = NL_ERROR_SUCCESS;
     PCHAR portName = NULL;
     UINT32 portNameLen = 0;
+    UINT32 portType = 0;
     UINT32 portNumber = OVS_DPPORT_NUMBER_INVALID;
 
     static const NL_POLICY ovsVportPolicy[] = {
@@ -2100,6 +2132,7 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                                   .minLen = 2,
                                   .maxLen = IFNAMSIZ,
                                   .optional = TRUE},
+        [OVS_VPORT_ATTR_TYPE] = { .type = NL_A_U32, .optional = TRUE }
     };
     PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
 
@@ -2121,11 +2154,23 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     if (vportAttrs[OVS_VPORT_ATTR_NAME] != NULL) {
         portName = NlAttrGet(vportAttrs[OVS_VPORT_ATTR_NAME]);
         portNameLen = NlAttrGetSize(vportAttrs[OVS_VPORT_ATTR_NAME]);
+        if (vportAttrs[OVS_VPORT_ATTR_TYPE] != NULL) {
+            portType = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_TYPE]);
+        }
 
         /* the port name is expected to be null-terminated */
         ASSERT(portName[portNameLen - 1] == '\0');
 
-        vport = OvsFindVportByOvsName(gOvsSwitchContext, portName);
+        vport = OvsFindVportByOvsName(gOvsSwitchContext, 1, portName);
+        if (!vport) {
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, 2, portName);
+        }
+        if (!vport) {
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, OVS_VPORT_TYPE_GENEVE, portName);
+        }
+        if (!vport) {
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, OVS_VPORT_TYPE_STT, portName);
+        }
     } else if (vportAttrs[OVS_VPORT_ATTR_PORT_NO] != NULL) {
         portNumber = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_PORT_NO]);
 
@@ -2258,13 +2303,15 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     portName = NlAttrGet(vportAttrs[OVS_VPORT_ATTR_NAME]);
     portNameLen = NlAttrGetSize(vportAttrs[OVS_VPORT_ATTR_NAME]);
     portType = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_TYPE]);
+    char temp[IFNAMSIZ];
+    BOOLEAN check = GetNormalizedPort(temp, portName, (UINT32)strlen(portName));
 
     /* we are expecting null terminated strings to be passed */
     ASSERT(portName[portNameLen - 1] == '\0');
 
     NdisAcquireRWLockWrite(gOvsSwitchContext->dispatchLock, &lockState, 0);
 
-    vport = OvsFindVportByOvsName(gOvsSwitchContext, portName);
+    vport = OvsFindVportByOvsName(gOvsSwitchContext, portType, portName);
     if (vport) {
         nlError = NL_ERROR_EXIST;
         goto Cleanup;
@@ -2273,7 +2320,10 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     if (portType == OVS_VPORT_TYPE_NETDEV ||
         portType == OVS_VPORT_TYPE_INTERNAL) {
         /* External and internal ports can also be looked up like VIF ports. */
-        vport = OvsFindVportByHvNameA(gOvsSwitchContext, portName);
+        vport = OvsFindVportByHvNameA(gOvsSwitchContext, portType, portName);
+        if (!vport && portType == OVS_VPORT_TYPE_INTERNAL && check) {
+            vport = OvsFindVportByHvNameA(gOvsSwitchContext, portType, temp);
+        }
     } else {
         ASSERT(OvsIsTunnelVportType(portType));
 
@@ -2498,8 +2548,8 @@ OvsSetVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 #endif
         /* the port name is expected to be null-terminated */
         ASSERT(portName[portNameLen - 1] == '\0');
-
-        vport = OvsFindVportByOvsName(gOvsSwitchContext, portName);
+        UINT32 type = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_TYPE]);
+        vport = OvsFindVportByOvsName(gOvsSwitchContext, type, portName);
     } else if (vportAttrs[OVS_VPORT_ATTR_PORT_NO] != NULL) {
         vport = OvsFindVportByPortNo(gOvsSwitchContext,
                     NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_PORT_NO]));
@@ -2578,6 +2628,7 @@ OvsDeleteVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         [OVS_VPORT_ATTR_PORT_NO] = { .type = NL_A_U32, .optional = TRUE },
         [OVS_VPORT_ATTR_NAME] = { .type = NL_A_STRING, .maxLen = IFNAMSIZ,
                                   .optional = TRUE },
+        [OVS_VPORT_ATTR_TYPE] = { . type = NL_A_U32, .optional = TRUE}
     };
     PNL_ATTR vportAttrs[ARRAY_SIZE(ovsVportPolicy)];
 
@@ -2601,8 +2652,8 @@ OvsDeleteVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 
         /* the port name is expected to be null-terminated */
         ASSERT(portName[portNameLen - 1] == '\0');
-
-        vport = OvsFindVportByOvsName(gOvsSwitchContext, portName);
+        UINT32 portType = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_TYPE]);
+        vport = OvsFindVportByOvsName(gOvsSwitchContext, portType, portName);
     }
     else if (vportAttrs[OVS_VPORT_ATTR_PORT_NO] != NULL) {
         vport = OvsFindVportByPortNo(gOvsSwitchContext,
