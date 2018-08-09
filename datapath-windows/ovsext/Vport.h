@@ -126,10 +126,13 @@ POVS_VPORT_ENTRY OvsFindVportByPortNo(POVS_SWITCH_CONTEXT switchContext,
                                       UINT32 portNo);
 /* "name" is null-terminated */
 POVS_VPORT_ENTRY OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
+                                       OVS_VPORT_TYPE ovsPortType,
                                        PSTR name);
 POVS_VPORT_ENTRY OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
+                                        OVS_VPORT_TYPE ovsPortType,
                                        PSTR name);
 POVS_VPORT_ENTRY OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
+                                       OVS_VPORT_TYPE ovsPortType,
                                        PWSTR wsName, SIZE_T wstrSize);
 POVS_VPORT_ENTRY OvsFindVportByPortIdAndNicIndex(POVS_SWITCH_CONTEXT switchContext,
                                                  NDIS_SWITCH_PORT_ID portId,
@@ -269,6 +272,33 @@ NDIS_STATUS InitOvsVportCommon(POVS_SWITCH_CONTEXT switchContext,
 NTSTATUS OvsInitTunnelVport(PVOID usrParamsCtx, POVS_VPORT_ENTRY vport,
                             OVS_VPORT_TYPE ovsType, UINT16 dstport);
 NTSTATUS OvsInitBridgeInternalVport(POVS_VPORT_ENTRY vport);
+
+static __inline BOOLEAN
+GetNormalizedPort(PCHAR dest, PCHAR source, UINT32 length)
+{
+    if (length >= 14) {
+        if (RtlCompareMemory(source, "vEthernet (", 11) != 11){
+            return FALSE;
+        }
+        RtlCopyMemory(dest, source + 11, length - 12);
+        dest[length - 12] = '\0';
+        return TRUE;
+    }
+    return FALSE;
+}
+static __inline BOOLEAN
+GetNormalizedPortW(PWCHAR dest, PWCHAR source, UINT32 length)
+{
+    if (length >= 14) {
+        if (RtlCompareMemory(source, L"vEthernet (", 11 * sizeof(WCHAR)) != 11 * sizeof(WCHAR)){
+            return FALSE;
+        }
+        RtlCopyMemory(dest, source + 11, (length - 12) * sizeof(WCHAR));
+        dest[length - 12] = L'\0';
+        return TRUE;
+    }
+    return FALSE;
+}
 
 POVS_VPORT_ENTRY OvsAllocateVport(VOID);
 
