@@ -21,6 +21,8 @@
 #include <tchar.h>
 #include "openvswitch/vlog.h"
 #include "util.h"
+#pragma comment(lib, "shell32.lib")
+
 
 VLOG_DEFINE_THIS_MODULE(wmi);
 
@@ -390,14 +392,84 @@ delete_wmi_port(char *name)
 
     if (!initialize_wmi(&ploc, &pcontext)) {
         VLOG_WARN("Could not initialize DCOM");
-        retval = false;
+        VLOG_WARN("Trying HNS API");
+        char buffer[10000];
+        int count;
+        count = snprintf(buffer, 10000, "-NoLogo -NoProfile -NonInteractive -Command \"try {Delete-OVSHNSInternalPort '%s'} catch { exit 1 }; exit 0; \"", name);
+        if (count < 0 || count > 10000) {
+            VLOG_WARN("Could not allocate memory for powershell delete command");
+            retval = false;
+            goto error;
+        }
+        DWORD res = 0;
+        SHELLEXECUTEINFOA ShExecInfo;
+        ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+        ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+        ShExecInfo.hwnd = NULL;
+        ShExecInfo.lpVerb = NULL;
+        ShExecInfo.lpFile = "powershell.exe";
+        ShExecInfo.lpParameters = buffer;
+        ShExecInfo.lpDirectory = NULL;
+        ShExecInfo.nShow = SW_HIDE;
+        ShExecInfo.hInstApp = NULL;
+        ShellExecuteExA(&ShExecInfo);
+        WaitForSingleObject(ShExecInfo.hProcess, 50000);
+        if (GetExitCodeProcess(ShExecInfo.hProcess, &res)) {
+            if (res != 0) {
+                VLOG_ERR("Powershell delete command failed with exit code: %d", res);
+                retval = false;
+                goto error;
+            }
+        } else {
+            VLOG_ERR("Failed to get exit code for powershell delete command. Last Error: %s",
+                ovs_lasterror_to_string());
+            retval = false;
+            goto error;
+        }
+        CloseHandle(ShExecInfo.hProcess);
+        retval = true;
         goto error;
     }
 
     if (!connect_set_security(ploc, pcontext, L"Root\\Virtualization\\v2",
                               &psvc)) {
         VLOG_WARN("Could not connect and set security for virtualization");
-        retval = false;
+        VLOG_WARN("Trying HNS API");
+        char buffer[10000];
+        int count;
+        count = snprintf(buffer, 10000, "-NoLogo -NoProfile -NonInteractive -Command \"try {Delete-OVSHNSInternalPort '%s'} catch { exit 1 }; exit 0; \"", name);
+        if (count < 0 || count > 10000) {
+            VLOG_WARN("Could not allocate memory for powershell delete command");
+            retval = false;
+            goto error;
+        }
+        DWORD res = 0;
+        SHELLEXECUTEINFOA ShExecInfo;
+        ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+        ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+        ShExecInfo.hwnd = NULL;
+        ShExecInfo.lpVerb = NULL;
+        ShExecInfo.lpFile = "powershell.exe";
+        ShExecInfo.lpParameters = buffer;
+        ShExecInfo.lpDirectory = NULL;
+        ShExecInfo.nShow = SW_HIDE;
+        ShExecInfo.hInstApp = NULL;
+        ShellExecuteExA(&ShExecInfo);
+        WaitForSingleObject(ShExecInfo.hProcess, 50000);
+        if (GetExitCodeProcess(ShExecInfo.hProcess, &res)) {
+            if (res != 0) {
+                VLOG_ERR("Powershell delete command failed with exit code: %d", res);
+                retval = false;
+                goto error;
+            }
+        } else {
+            VLOG_ERR("Failed to get exit code for powershell delete command. Last Error: %s",
+                ovs_lasterror_to_string());
+            retval = false;
+            goto error;
+        }
+        CloseHandle(ShExecInfo.hProcess);
+        retval = true;
         goto error;
     }
 
@@ -673,14 +745,86 @@ create_wmi_port(char *name) {
 
     if (!initialize_wmi(&ploc, &pcontext)) {
         VLOG_WARN("Could not initialize DCOM");
-        retval = false;
+        VLOG_WARN("Trying HNS API");
+        char buffer[10000];
+        int count;
+        count = snprintf(buffer, 10000, "-NoLogo -NoProfile -NonInteractive -Command \"try {Add-OVSHNSInternalPort '%s'} catch { exit 1 }; exit 0; \"", name);
+        if (count < 0 || count > 10000) {
+            VLOG_WARN("Could not allocate memory for powershell add command");
+            retval = false;
+            goto error;
+        }
+        VLOG_WARN("command = %s", buffer);
+        DWORD res = 0;
+        SHELLEXECUTEINFOA ShExecInfo;
+        ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+        ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+        ShExecInfo.hwnd = NULL;
+        ShExecInfo.lpVerb = NULL;
+        ShExecInfo.lpFile = "powershell.exe";
+        ShExecInfo.lpParameters = buffer;
+        ShExecInfo.lpDirectory = NULL;
+        ShExecInfo.nShow = SW_HIDE;
+        ShExecInfo.hInstApp = NULL;
+        ShellExecuteExA(&ShExecInfo);
+        WaitForSingleObject(ShExecInfo.hProcess, 50000);
+        if (GetExitCodeProcess(ShExecInfo.hProcess, &res)) {
+            if (res != 0) {
+                VLOG_ERR("Powershell add command failed with exit code: %d", res);
+                retval = false;
+                goto error;
+            }
+        } else {
+            VLOG_ERR("Failed to get exit code for powershell add command. Last Error: %s",
+                ovs_lasterror_to_string());
+            retval = false;
+            goto error;
+        }
+        CloseHandle(ShExecInfo.hProcess);
+        retval = true;
         goto error;
     }
 
     if (!connect_set_security(ploc, pcontext, L"Root\\Virtualization\\v2",
                               &psvc)) {
         VLOG_WARN("Could not connect and set security for virtualization");
-        retval = false;
+        VLOG_WARN("Trying HNS API");
+        char buffer[10000];
+        int count;
+        count = snprintf(buffer, 10000, "-NoLogo -NoProfile -NonInteractive -Command \"try {Add-OVSHNSInternalPort '%s'} catch { exit 1 }; exit 0; \"", name);
+        if (count < 0 || count > 10000) {
+            VLOG_WARN("Could not allocate memory for powershell add command");
+            retval = false;
+            goto error;
+        }
+        VLOG_WARN("command = %s", buffer);
+        DWORD res = 0;
+        SHELLEXECUTEINFOA ShExecInfo;
+        ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+        ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+        ShExecInfo.hwnd = NULL;
+        ShExecInfo.lpVerb = NULL;
+        ShExecInfo.lpFile = "powershell.exe";
+        ShExecInfo.lpParameters = buffer;
+        ShExecInfo.lpDirectory = NULL;
+        ShExecInfo.nShow = SW_HIDE;
+        ShExecInfo.hInstApp = NULL;
+        ShellExecuteExA(&ShExecInfo);
+        WaitForSingleObject(ShExecInfo.hProcess, 50000);
+        if (GetExitCodeProcess(ShExecInfo.hProcess, &res)) {
+            if (res != 0) {
+                VLOG_ERR("Powershell add command failed with exit code: %d", res);
+                retval = false;
+                goto error;
+            }
+        } else {
+            VLOG_ERR("Failed to get exit code for powershell add command. Last Error: %s",
+                ovs_lasterror_to_string());
+            retval = false;
+            goto error;
+        }
+        CloseHandle(ShExecInfo.hProcess);
+        retval = true;
         goto error;
     }
 
