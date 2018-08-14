@@ -8,7 +8,8 @@ function Get-VmComputeNativeMethods()
 '@
 
     # Compile into runtime type
-    Add-Type -MemberDefinition $signature -Namespace VmCompute.PrivatePInvoke -Name NativeMethods -PassThru
+    try { return [VmCompute.PrivatePInvoke.NativeMethods] }
+    catch { return (Add-Type -MemberDefinition $signature -Namespace VmCompute.PrivatePInvoke -Name NativeMethods -PassThru) }
 }
 
 #########################################################################
