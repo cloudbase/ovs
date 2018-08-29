@@ -163,6 +163,7 @@ OvsGetTcpHeader(PNET_BUFFER_LIST nbl,
     IPHdr *ipHdr;
     TCPHdr *tcp;
     VOID *dest = storage;
+    *tcpPayloadLen = 0;
 
     ipHdr = NdisGetDataBuffer(NET_BUFFER_LIST_FIRST_NB(nbl),
                               layers->l4Offset + sizeof(TCPHdr),
@@ -173,10 +174,9 @@ OvsGetTcpHeader(PNET_BUFFER_LIST nbl,
 
     ipHdr = (IPHdr *)((PCHAR)ipHdr + layers->l3Offset);
     tcp = (TCPHdr *)((PCHAR)ipHdr + ipHdr->ihl * 4);
-    if (tcp->doff * 4 >= sizeof *tcp) {
+    if (tcp->doff * 4 >= TCP_HDR_MIN_LENGTH) {
         NdisMoveMemory(dest, tcp, sizeof(TCPHdr));
-        *tcpPayloadLen = ntohs((ipHdr->tot_len) - (ipHdr->ihl * 4) -
-                               (TCP_HDR_LEN(tcp)));
+        *tcpPayloadLen = TCP_DATA_LENGTH(ipHdr, tcp);
         return storage;
     }
 

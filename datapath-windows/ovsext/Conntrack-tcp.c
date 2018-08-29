@@ -155,7 +155,7 @@ OvsCtInvalidTcpFlags(uint16_t flags)
 static __inline uint8_t
 OvsTcpGetWscale(const TCPHdr *tcp)
 {
-    int len = tcp->doff * 4 - sizeof *tcp;
+    int len = TCP_OFFSET(tcp->flags) - sizeof *tcp;
     const uint8_t *opt = (const uint8_t *)(tcp + 1);
     uint8_t wscale = 0;
     uint8_t optlen;
@@ -204,10 +204,11 @@ OvsConntrackUpdateTcpEntry(OVS_CT_ENTRY* conn_,
     /* The peer that should receive 'pkt' */
     struct tcp_peer *dst = &conn->peer[reply ? 0 : 1];
     uint8_t sws = 0, dws = 0;
-    UINT16 tcp_flags = ntohs(tcp->flags);
+    UINT16 tcp_flags = TCP_FLAGS(tcp->flags);
     uint16_t win = ntohs(tcp->window);
     uint32_t ack, end, seq, orig_seq;
     int ackskew;
+    BOOLEAN check_ackskew = TRUE;
 
     if (OvsCtInvalidTcpFlags(tcp_flags)) {
         return CT_UPDATE_INVALID;
@@ -279,6 +280,11 @@ OvsConntrackUpdateTcpEntry(OVS_CT_ENTRY* conn_,
         if (src->seqhi == 1 ||
                 SEQ_GEQ(end + MAX(1, dst->max_win << dws), src->seqhi)) {
             src->seqhi = end + MAX(1, dst->max_win << dws);
+            /* We are either picking up a new connection or a connection which
+             * was already in place.  We are more permissive in terms of
+             * ackskew checking in these cases.
+             */
+            check_ackskew = FALSE;
         }
         if (win > src->max_win) {
             src->max_win = win;
@@ -312,7 +318,7 @@ OvsConntrackUpdateTcpEntry(OVS_CT_ENTRY* conn_,
         end = seq;
     }
 
-    ackskew = dst->seqlo - ack;
+    ackskew = check_ackskew ? dst->seqlo - ack : 0;
 #define MAXACKWINDOW (0xffff + 1500) /* 1500 is an arbitrary fudge factor */
     if (SEQ_GEQ(src->seqhi, end)
         /* Last octet inside other's window space */
@@ -447,7 +453,7 @@ OvsConntrackValidateTcpPacket(const TCPHdr *tcp)
         return FALSE;
     }
 
-    UINT16 tcp_flags = ntohs(tcp->flags);
+    UINT16 tcp_flags = TCP_FLAGS(tcp->flags);
 
     if (OvsCtInvalidTcpFlags(tcp_flags)) {
         OVS_LOG_TRACE("Invalid TCP packet detected, tcp_flags %hu", tcp_flags);
