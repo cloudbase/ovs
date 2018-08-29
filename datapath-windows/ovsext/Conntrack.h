@@ -162,6 +162,7 @@ OvsGetTcpPayloadLength(PNET_BUFFER_LIST nbl)
     IPHdr *ipHdr;
     TCPHdr *tcp;
     char *ipBuf[sizeof(EthHdr) + sizeof(IPHdr) + sizeof(TCPHdr)];
+    UINT32 tcpPayloadLen = 0;
 
     ipHdr = NdisGetDataBuffer(NET_BUFFER_LIST_FIRST_NB(nbl), sizeof *ipBuf,
                               (PVOID)&ipBuf, 1 /*no align*/, 0);
@@ -171,8 +172,12 @@ OvsGetTcpPayloadLength(PNET_BUFFER_LIST nbl)
 
     ipHdr = (IPHdr *)((PCHAR)ipHdr + sizeof(EthHdr));
     tcp = (TCPHdr *)((PCHAR)ipHdr + ipHdr->ihl * 4);
+    if (tcp->doff * 4 >= TCP_HDR_MIN_LENGTH) {
+        tcpPayloadLen = TCP_DATA_LENGTH(ipHdr, tcp);
+        return tcpPayloadLen;
+    }
 
-    return (ntohs(ipHdr->tot_len) - (ipHdr->ihl * 4) - (TCP_HDR_LEN(tcp)));
+    return 0;
 }
 
 VOID OvsCleanupConntrack(VOID);

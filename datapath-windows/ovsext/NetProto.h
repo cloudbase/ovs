@@ -430,14 +430,10 @@ typedef struct IPOpt {
 #define SOCKET_IPPROTO_GRE   47
 #define SOCKET_IPPROTO_SCTP  132
 
-union TcpWordsHdr {
-    struct TCPHdr hdr;
-    UINT32 		  member[5];
-};
-
 #define TCP_CTL_OFS 12                // Offset of "ctl" field in TCP header.
-#define TCP_FLAGS(CTL) ((CTL) & 0x3f) // Obtain TCP flags from CTL.
-#define TCP_FLAGS_WORDS(tp) ( ((union TcpWordsHdr *)(tp))->member [3])
-#define TCP_FLAGS_BE16(tp) (*(UINT16 *)&TCP_FLAGS_WORDS(tp) & htons(0x0FFF))
+#define TCP_CTL(flags, offset) (htons((flags) | ((offset) << 12)))
+#define TCP_FLAGS(tcp_ctl) (ntohs(tcp_ctl) & 0x0fff)
+#define TCP_FLAGS_BE16(tcp_ctl) (*((UINT16 *)tcp_ctl) & htons(0x0fff))
+#define TCP_OFFSET(tcp_ctl) (ntohs(tcp_ctl) >> 12)
 
 #endif /* __NET_PROTO_H_ */
