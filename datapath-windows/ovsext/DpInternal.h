@@ -69,6 +69,7 @@ typedef struct L4Key {
     ovs_be16 flags;              /* TCP flags */
     uint8_t  pad[2];
 } L4Key;
+C_ASSERT(sizeof(struct L4Key) % 8 == 0);
 
 typedef struct Ipkey {
     ovs_be32 nwSrc;              /* IPv4 source address. */
@@ -79,6 +80,7 @@ typedef struct Ipkey {
     uint8_t nwFrag;              /* FLOW_FRAG_* flags. */
     L4Key   l4;
 } IpKey;  /* Size of 20 byte. */
+C_ASSERT(sizeof(struct L4Key) % 8 == 0);
 
 typedef struct ArpKey {
     ovs_be32 nwSrc;              /* IPv4 source address. */
@@ -88,6 +90,7 @@ typedef struct ArpKey {
     uint8_t nwProto;             /* IP protocol or low 8 bits of ARP opcode. */
     uint8_t pad[3];
 } ArpKey; /* Size of 24 byte. */
+C_ASSERT(sizeof(struct ArpKey) % 8 == 0);
 
 typedef struct Ipv6Key {
     struct in6_addr ipv6Src;     /* IPv6 source address. */
@@ -99,6 +102,7 @@ typedef struct Ipv6Key {
     uint8_t nwFrag;              /* FLOW_FRAG_* flags. */
     L4Key  l4;
 } Ipv6Key;  /* Size of 48 byte. */
+C_ASSERT(sizeof(struct Ipv6Key) % 8 == 0);
 
 typedef struct Icmp6Key {
     struct in6_addr ipv6Src;     /* IPv6 source address. */
@@ -112,7 +116,9 @@ typedef struct Icmp6Key {
     uint8_t arpSha[6];           /* ARP/ND source hardware address. */
     uint8_t arpTha[6];           /* ARP/ND target hardware address. */
     struct in6_addr ndTarget;    /* IPv6 neighbor discovery (ND) target. */
+    uint8_t pad[4];
 } Icmp6Key; /* Size of 76 byte. */
+C_ASSERT(sizeof(struct Icmp6Key) % 8 == 0);
 
 typedef struct L2Key {
     uint32_t inPort;             /* Port number of input port. */
@@ -128,6 +134,7 @@ typedef struct L2Key {
     ovs_be16 vlanTci;            /* If 802.1Q, TCI | VLAN_CFI; otherwise 0. */
     ovs_be16 dlType;             /* Ethernet frame type. */
 } L2Key; /* Size of 24 byte. */
+C_ASSERT(sizeof(struct L2Key) % 8 == 0);
 
 /* Number of packet attributes required to store OVS tunnel key. */
 #define NUM_PKT_ATTR_REQUIRED 35
@@ -158,6 +165,7 @@ typedef union OvsIPv4TunnelKey {
     };
     uint64_t attr[NUM_PKT_ATTR_REQUIRED];
 } OvsIPv4TunnelKey; /* Size of 280 byte. */
+C_ASSERT(sizeof(union OvsIPv4TunnelKey) % 8 == 0);
 
 static __inline uint8_t
 TunnelKeyGetOptionsOffset(const OvsIPv4TunnelKey *key)
@@ -181,6 +189,7 @@ typedef struct MplsKey {
     ovs_be32 lse;                /* MPLS topmost label stack entry. */
     uint8    pad[4];
 } MplsKey; /* Size of 8 bytes. */
+C_ASSERT(sizeof(struct MplsKey) % 8 == 0);
 
 typedef __declspec(align(8)) struct OvsFlowKey {
     OvsIPv4TunnelKey tunKey;     /* 280 bytes */

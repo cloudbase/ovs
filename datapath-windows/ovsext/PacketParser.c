@@ -184,7 +184,7 @@ OvsParseTcp(const NET_BUFFER_LIST *packet,
         if (flow) {
             flow->tpSrc = tcp->source;
             flow->tpDst = tcp->dest;
-            flow->flags = TCP_FLAGS_BE16(tcp);
+            flow->flags = TCP_FLAGS_BE16(&tcp->flags);
         }
         if (layers) {
             layers->isTcp = 1;
