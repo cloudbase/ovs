@@ -2171,6 +2171,12 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         if (!vport) {
             vport = OvsFindVportByOvsName(gOvsSwitchContext, OVS_VPORT_TYPE_STT, portName);
         }
+        if (!vport) {
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, OVS_VPORT_TYPE_VXLAN, portName);
+        }
+        if (!vport) {
+            vport = OvsFindVportByOvsName(gOvsSwitchContext, OVS_VPORT_TYPE_GRE, portName);
+        }
     } else if (vportAttrs[OVS_VPORT_ATTR_PORT_NO] != NULL) {
         portNumber = NlAttrGetU32(vportAttrs[OVS_VPORT_ATTR_PORT_NO]);
 
@@ -2349,6 +2355,7 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                 break;
             case OVS_VPORT_TYPE_GENEVE:
                 transportPortDest = GENEVE_UDP_PORT;
+                nwProto = IPPROTO_UDP;
                 break;
             case OVS_VPORT_TYPE_STT:
                 transportPortDest = STT_TCP_PORT;
@@ -2477,6 +2484,9 @@ Cleanup:
                         break;
                     case OVS_VPORT_TYPE_GENEVE:
                         OvsCleanupGeneveTunnel(vport);
+                        break;
+                    case OVS_VPORT_TYPE_GRE:
+                        OvsCleanupGreTunnel(vport);
                         break;
                     default:
                         ASSERT(!"Invalid tunnel port type");
