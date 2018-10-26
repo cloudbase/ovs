@@ -4010,11 +4010,11 @@ AT_SETUP([ofproto-dpif - fragment handling - trace])
 OVS_VSWITCHD_START
 add_of_ports br0 1 2 3 4 5 6 90
 AT_DATA([flows.txt], [dnl
-priority=75 tcp ip_frag=no    tp_dst=80 actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:1
-priority=75 tcp ip_frag=first tp_dst=80 actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:2
-priority=50 tcp ip_frag=no              actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:4
-priority=50 tcp ip_frag=first           actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:5
-priority=50 tcp ip_frag=later           actions=output:6
+priority=75 tcp nw_frag=no    tp_dst=80 actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:1
+priority=75 tcp nw_frag=first tp_dst=80 actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:2
+priority=50 tcp nw_frag=no              actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:4
+priority=50 tcp nw_frag=first           actions=move:OXM_OF_TCP_DST[[]]->OXM_OF_TCP_SRC[[]],output:5
+priority=50 tcp nw_frag=later           actions=output:6
 ])
 AT_CHECK([ovs-ofctl replace-flows br0 flows.txt])
 
@@ -5066,6 +5066,74 @@ CHECK_CONTINUATION([patch ports], [4], [1],
        -- set interface patch11 type=patch options:peer=patch10 \
                                 ofport_request=11])
 
+AT_SETUP([ofproto-dpif - continuation flow stats])
+AT_KEYWORDS([continuations pause resume])
+OVS_VSWITCHD_START
+
+add_of_ports --pcap br0 `seq 1 2`
+
+flow="in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=1,tos=0,ttl=128,frag=no),icmp(type=8,code=0)"
+
+AT_DATA([flows.txt], [dnl
+table=0 in_port=1 actions=set_field:1->reg1 controller(pause) resubmit(,2)
+table=2 reg1=0x1 actions=2
+])
+
+AT_CHECK([ovs-ofctl -O OpenFlow13 add-flows br0 flows.txt])
+
+AT_CAPTURE_FILE([ofctl_monitor0.log])
+ovs-ofctl monitor br0 resume --detach --no-chdir \
+--pidfile=ovs-ofctl0.pid 2> ofctl_monitor0.log
+
+# Run a packet through the switch.
+AT_CHECK([ovs-appctl netdev-dummy/receive p1 "$flow"], [0], [stdout])
+
+# Check flow stats
+AT_CHECK([ovs-ofctl dump-flows br0], [0], [stdout])
+AT_CHECK([strip_xids < stdout | sed -n 's/duration=[[0-9]]*\.[[0-9]]*s/duration=0.0s/p' | sed -n 's/idle_age=[[0-9]]*/idle_age=0/p' | grep 'table=2'], [0], [dnl
+ cookie=0x0, duration=0.0s, table=2, n_packets=1, n_bytes=42, idle_age=0, reg1=0x1 actions=output:2
+])
+
+# The packet should be recieved by port 2
+AT_CHECK([test 1 = `$PYTHON "$top_srcdir/utilities/ovs-pcap.in" p2-tx.pcap | wc -l`])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([ofproto-dpif - continuation with conntrack])
+AT_KEYWORDS([continuations pause resume])
+OVS_VSWITCHD_START
+
+add_of_ports --pcap br0 `seq 1 2`
+
+flow="in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=1,tos=0,ttl=128,frag=no),icmp(type=8,code=0)"
+
+AT_DATA([flows.txt], [dnl
+table=0, in_port=1 icmp action=ct(table=1)
+table=1, icmp action=controller(pause) resubmit(,2)
+table=2, in_port=1 icmp ct_state=+trk+new action=output:2
+])
+
+AT_CHECK([ovs-ofctl -O OpenFlow13 add-flows br0 flows.txt])
+
+AT_CAPTURE_FILE([ofctl_monitor0.log])
+ovs-ofctl monitor br0 resume --detach --no-chdir \
+--pidfile=ovs-ofctl0.pid 2> ofctl_monitor0.log
+
+# Run a packet through the switch.
+AT_CHECK([ovs-appctl netdev-dummy/receive p1 "$flow"], [0], [stdout])
+
+# Check flow stats
+AT_CHECK([ovs-ofctl dump-flows br0], [0], [stdout])
+AT_CHECK([strip_xids < stdout | sed -n 's/duration=[[0-9]]*\.[[0-9]]*s/duration=0.0s/p' | sed -n 's/idle_age=[[0-9]]*/idle_age=0/p' | grep 'table=2'], [0], [dnl
+ cookie=0x0, duration=0.0s, table=2, n_packets=1, n_bytes=42, idle_age=0, ct_state=+new+trk,icmp,in_port=1 actions=output:2
+])
+
+# The packet should be received by port 2
+AT_CHECK([test 1 = `$PYTHON "$top_srcdir/utilities/ovs-pcap.in" p2-tx.pcap | wc -l`])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
 
 # Check that pause works after the packet is cloned.
 AT_SETUP([ofproto-dpif - continuation after clone])
@@ -6225,7 +6293,7 @@ ovs-vsctl \
       set Interface p1 options:ifindex=1003 --			\
       set Bridge br0 sflow=@sf --				\
       --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\"	\
-      header=128 sampling=1 polling=1
+      header=128 sampling=1 polling=1 agent=127.0.0.1
 
 dnl sleep long enough to get the sFlow datagram flushed out (may be delayed for up to 1 second)
 AT_CHECK([ovs-appctl time/warp 2000 100], [0], [ignore])
@@ -6274,7 +6342,7 @@ AT_CHECK([ovs-ofctl add-flow br0 action=3])
 dnl enable sflow
 ovs-vsctl \
    set Bridge br0 sflow=@sf -- \
-   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" \
+   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" agent=127.0.0.1 \
      header=128 sampling=1 polling=0
 
 dnl introduce a packet that will be flooded to the tunnel
@@ -6366,7 +6434,7 @@ AT_CHECK([ovs-appctl netdev-dummy/receive p0 'recirc_id(0),in_port(1),eth(src=f8
 dnl configure sflow on int-br only
 ovs-vsctl \
    set Bridge int-br sflow=@sf -- \
-   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" \
+   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" agent=127.0.0.1 \
      header=128 sampling=1 polling=0
 
 dnl set up route to 192.168.1.2 via br0
@@ -6445,7 +6513,7 @@ ovs-appctl time/stop
 dnl configure sflow
 ovs-vsctl \
    set Bridge br0 sflow=@sf -- \
-   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" \
+   --id=@sf create sflow targets=\"127.0.0.1:$SFLOW_PORT\" agent=127.0.0.1 \
      header=128 sampling=1 polling=0
 
 AT_CHECK([ovs-appctl netdev-dummy/receive p1 'in_port(1),eth(src=50:54:00:00:00:09,dst=50:54:00:00:00:0a),eth_type(0x8847),mpls(label=11,tc=3,ttl=64,bos=1)'])
@@ -8841,7 +8909,8 @@ OVS_VSWITCHD_START(
   [add-port br0 p1 -- set Interface p1 type=dummy ofport_request=1])
 AT_CHECK([ovs-appctl vlog/set dpif:dbg dpif_netdev:dbg])
 
-AT_CHECK([ovs-ofctl del-flows br0])
+# Always drop misses
+AT_CHECK([ovs-ofctl -O OpenFlow11 mod-table br0 all drop])
 AT_CHECK([ovs-ofctl add-flow br0 in_port=1,actions=output:local])
 
 ovs-appctl vlog/set PATTERN:ANY:'%c|%p|%m'

@@ -129,7 +129,6 @@ extract_l3_ipv4(struct conn_key *key, const void *data, size_t size,
 static inline bool
 extract_l3_ipv6(struct conn_key *key, const void *data, size_t size,
                 const char **new_data);
-
 static struct alg_exp_node *
 expectation_lookup(struct hmap *alg_expectations, const struct conn_key *key,
                    uint32_t basis, bool src_ip_wc);
@@ -1157,8 +1156,11 @@ conn_update_state_alg(struct conntrack *ct, struct dp_packet *pkt,
         } else {
             *create_new_conn = conn_update_state(ct, pkt, ctx, &conn, now,
                                                 bucket);
-            handle_ftp_ctl(ct, ctx, pkt, conn, now, CT_FTP_CTL_OTHER,
-                           !!nat_action_info);
+
+            if (*create_new_conn == false) {
+                handle_ftp_ctl(ct, ctx, pkt, conn, now, CT_FTP_CTL_OTHER,
+                               !!nat_action_info);
+            }
         }
         return true;
     }
@@ -1247,9 +1249,9 @@ process_one(struct conntrack *ct, struct dp_packet *pkt,
     }
 
     const struct alg_exp_node *alg_exp = NULL;
+    struct alg_exp_node alg_exp_entry;
 
     if (OVS_UNLIKELY(create_new_conn)) {
-        struct alg_exp_node alg_exp_entry;
 
         ct_rwlock_rdlock(&ct->resources_lock);
         alg_exp = expectation_lookup(&ct->alg_expectations, &ctx->key,
@@ -1497,44 +1499,38 @@ clean_thread_main(void *f_)
     return NULL;
 }
 
-/* Key extraction */
-
-/* The function stores a pointer to the first byte after the header in
- * '*new_data', if 'new_data' is not NULL.  If it is NULL, the caller is
- * not interested in the header's tail,  meaning that the header has
- * already been parsed (e.g. by flow_extract): we take this as a hint to
- * save a few checks.  If 'validate_checksum' is true, the function returns
- * false if the IPv4 checksum is invalid. */
+/* 'Data' is a pointer to the beginning of the L3 header and 'new_data' is
+ * used to store a pointer to the first byte after the L3 header.  'Size' is
+ * the size of the packet beyond the data pointer. */
 static inline bool
 extract_l3_ipv4(struct conn_key *key, const void *data, size_t size,
                 const char **new_data, bool validate_checksum)
 {
-    if (new_data) {
-        if (OVS_UNLIKELY(size < IP_HEADER_LEN)) {
-            return false;
-        }
+    if (OVS_UNLIKELY(size < IP_HEADER_LEN)) {
+        return false;
     }
 
     const struct ip_header *ip = data;
     size_t ip_len = IP_IHL(ip->ip_ihl_ver) * 4;
 
-    if (new_data) {
-        if (OVS_UNLIKELY(ip_len < IP_HEADER_LEN)) {
-            return false;
-        }
-        if (OVS_UNLIKELY(size < ip_len)) {
-            return false;
-        }
+    if (OVS_UNLIKELY(ip_len < IP_HEADER_LEN)) {
+        return false;
+    }
 
-        if (IP_IS_FRAGMENT(ip->ip_frag_off)) {
-            return false;
-        }
+    if (OVS_UNLIKELY(size < ip_len)) {
+        return false;
+    }
 
-        *new_data = (char *) data + ip_len;
+    if (IP_IS_FRAGMENT(ip->ip_frag_off)) {
+        return false;
     }
 
     if (validate_checksum && csum(data, ip_len) != 0) {
         return false;
+    }
+
+    if (new_data) {
+        *new_data = (char *) data + ip_len;
     }
 
     key->src.addr.ipv4 = ip->ip_src;
@@ -1544,21 +1540,17 @@ extract_l3_ipv4(struct conn_key *key, const void *data, size_t size,
     return true;
 }
 
-/* The function stores a pointer to the first byte after the header in
- * '*new_data', if 'new_data' is not NULL.  If it is NULL, the caller is
- * not interested in the header's tail,  meaning that the header has
- * already been parsed (e.g. by flow_extract): we take this as a hint to
- * save a few checks. */
+/* 'Data' is a pointer to the beginning of the L3 header and 'new_data' is
+ * used to store a pointer to the first byte after the L3 header.  'Size' is
+ * the size of the packet beyond the data pointer. */
 static inline bool
 extract_l3_ipv6(struct conn_key *key, const void *data, size_t size,
                 const char **new_data)
 {
     const struct ovs_16aligned_ip6_hdr *ip6 = data;
 
-    if (new_data) {
-        if (OVS_UNLIKELY(size < sizeof *ip6)) {
-            return false;
-        }
+    if (OVS_UNLIKELY(size < sizeof *ip6)) {
+        return false;
     }
 
     data = ip6 + 1;

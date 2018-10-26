@@ -1,5 +1,9 @@
-v2.9.3 - xx xxx xxxx
+v2.9.4 - xx xxx xxxx
 --------------------
+
+v2.9.3 - 19 Oct 2018
+--------------------
+   - Bug fixes
 
 v2.9.2 - 25 May 2018
 --------------------
@@ -47,6 +51,7 @@ v2.9.0 - 19 Feb 2018
        - Added support to generate Neighbor Solicitation packets using the OVN
          action 'nd_ns' to resolve unknown next hop MAC addresses for the
          IPv6 packets.
+     * Add support for QoS bandwidth limit with DPDK.
      * ovn-ctl: New commands run_nb_ovsdb and run_sb_ovsdb.
    - OpenFlow:
      * ct_clear action is now backed by kernel datapath. Support is probed for
@@ -138,7 +143,6 @@ v2.8.0 - 31 Aug 2017
        gateway.
      * Add support for ACL logging.
      * ovn-northd now has native support for active-standby high availability.
-     * Add support for QoS bandwidth limt with DPDK.
    - Tracing with ofproto/trace now traces through recirculation.
    - OVSDB:
      * New support for role-based access control (see ovsdb-server(1)).

@@ -37,6 +37,8 @@
 #include "netdev.h"
 #include "openflow/openflow.h"
 #include "ovsdb-idl.h"
+#include "ovs-router.h"
+#include "ovs-thread.h"
 #include "openvswitch/poll-loop.h"
 #include "simap.h"
 #include "stream-ssl.h"
@@ -76,6 +78,7 @@ main(int argc, char *argv[])
     int retval;
 
     set_program_name(argv[0]);
+    ovsthread_id_init();
 
     ovs_cmdl_proctitle_init(argc, argv);
     service_start(&argc, &argv);
@@ -216,6 +219,7 @@ parse_options(int argc, char *argv[], char **unixctl_pathp)
 
         case OPT_DISABLE_SYSTEM:
             dp_blacklist_provider("system");
+            ovs_router_disable_system_routing_table();
             break;
 
         case '?':

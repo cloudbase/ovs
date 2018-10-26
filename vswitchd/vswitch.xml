@@ -201,16 +201,23 @@
       </column>
 
       <column name="other_config" key="tc-policy"
-              type='{"type": "string"}'>
+              type='{"type": "string",
+                     "enum": ["set", ["none", "skip_sw", "skip_hw"]]}'>
         <p>
-            Specified the policy used with HW offloading.
-            Options:
-                <code>none</code>    - Add software rule and offload rule to HW.
-                <code>skip_sw</code> - Offload rule to HW only.
-                <code>skip_hw</code> - Add software rule without offloading rule to HW.
+          Specified the policy used with HW offloading.
+          Options:
+          <dl>
+            <dt><code>none</code></dt>
+            <dd>Add software rule and offload rule to HW.</dd>
+            <dt><code>skip_sw</code></dt>
+            <dd>Offload rule to HW only.</dd>
+            <dt><code>skip_hw</code></dt>
+            <dd>Add software rule without offloading rule to HW.</dd>
+          </dl>
         </p>
         <p>
-            This is only relevant if HW offloading is enabled (hw-offload).
+          This is only relevant if
+          <ref column="other_config" key="hw-offload"/> is enabled.
         </p>
         <p>
           The default value is <code>none</code>.
@@ -5120,13 +5127,24 @@ ovs-vsctl add-port br0 p0 -- set Interface p0 type=patch options:peer=p1 \
     monitoring of switches.</p>
 
     <column name="agent">
-      Name of the network device whose IP address should be reported as the
-      ``agent address'' to collectors.  If not specified, the agent device is
-      figured from the first target address and the routing table.  If the
-      routing table does not contain a route to the target, the IP address
-      defaults to the <ref table="Controller" column="local_ip"/> in the
-      collector's <ref table="Controller"/>.  If an agent IP address cannot be
-      determined any of these ways, sFlow is disabled.
+      <p>
+        Determines the agent address, that is, the IP address reported to
+        collectors as the source of the sFlow data.  It may be an IP address or
+        the name of a network device.  In the latter case, the network device's
+        IP address is used,
+      </p>
+
+      <p>
+        If not specified, the agent device is figured from the first target
+        address and the routing table.  If the routing table does not contain a
+        route to the target, the IP address defaults to the <ref
+        table="Controller" column="local_ip"/> in the collector's <ref
+        table="Controller"/>.
+      </p>
+
+      <p>
+        If an agent IP address cannot be determined, sFlow is disabled.
+      </p>
     </column>
 
     <column name="header">

@@ -2739,7 +2739,7 @@ static const struct uuid index_row_uuid = {
 
 /* Check if a row is an index row */
 static bool
-is_index_row(struct ovsdb_idl_row *row)
+is_index_row(const struct ovsdb_idl_row *row)
 {
     return uuid_equals(&row->uuid, &index_row_uuid);
 }
@@ -3126,11 +3126,13 @@ ovsdb_idl_modify_row_by_diff(struct ovsdb_idl_row *row,
 {
     bool changed;
 
+    ovsdb_idl_remove_from_indexes(row);
     ovsdb_idl_row_unparse(row);
     ovsdb_idl_row_clear_arcs(row, true);
     changed = ovsdb_idl_row_apply_diff(row, diff_json,
                                        OVSDB_IDL_CHANGE_MODIFY);
     ovsdb_idl_row_parse(row);
+    ovsdb_idl_add_to_indexes(row);
 
     return changed;
 }
@@ -3592,9 +3594,18 @@ ovsdb_idl_txn_disassemble(struct ovsdb_idl_txn *txn)
     txn->db->txn = NULL;
 
     HMAP_FOR_EACH_SAFE (row, next, txn_node, &txn->txn_rows) {
+        enum { INSERTED, MODIFIED, DELETED } op
+            = (!row->new_datum ? DELETED
+               : !row->old_datum ? INSERTED
+               : MODIFIED);
+
+        if (op != DELETED) {
+            ovsdb_idl_remove_from_indexes(row);
+        }
+
         ovsdb_idl_destroy_all_map_op_lists(row);
         ovsdb_idl_destroy_all_set_op_lists(row);
-        if (row->old_datum) {
+        if (op != INSERTED) {
             if (row->written) {
                 ovsdb_idl_row_unparse(row);
                 ovsdb_idl_row_clear_arcs(row, false);
@@ -3613,7 +3624,9 @@ ovsdb_idl_txn_disassemble(struct ovsdb_idl_txn *txn)
 
         hmap_remove(&txn->txn_rows, &row->txn_node);
         hmap_node_nullify(&row->txn_node);
-        if (!row->old_datum) {
+        if (op != INSERTED) {
+            ovsdb_idl_add_to_indexes(row);
+        } else {
             hmap_remove(&row->table->rows, &row->hmap_node);
             free(row);
         }
@@ -3929,6 +3942,39 @@ ovsdb_idl_txn_commit(struct ovsdb_idl_txn *txn)
 
     /* Add updates. */
     any_updates = false;
+
+    /* For tables constrained to have only a single row (a fairly common OVSDB
+     * pattern for storing global data), identify whether we're inserting a
+     * row.  If so, then verify that the table is empty before inserting the
+     * row.  This gives us a clear verification-related failure if there was an
+     * insertion race with another client. */
+    for (size_t i = 0; i < txn->db->class_->n_tables; i++) {
+        struct ovsdb_idl_table *table = &txn->db->tables[i];
+        if (table->class_->is_singleton) {
+            /* Count the number of rows in the table before and after our
+             * transaction commits.  This is O(n) in the number of rows in the
+             * table, but that's OK since we know that the table should only
+             * have one row. */
+            size_t initial_rows = 0;
+            size_t final_rows = 0;
+            HMAP_FOR_EACH (row, hmap_node, &table->rows) {
+                initial_rows += row->old_datum != NULL;
+                final_rows += row->new_datum != NULL;
+            }
+
+            if (initial_rows == 0 && final_rows == 1) {
+                struct json *op = json_object_create();
+                json_array_add(operations, op);
+                json_object_put_string(op, "op", "wait");
+                json_object_put_string(op, "table", table->class_->name);
+                json_object_put(op, "where", json_array_create_empty());
+                json_object_put(op, "timeout", json_integer_create(0));
+                json_object_put_string(op, "until", "==");
+                json_object_put(op, "rows", json_array_create_empty());
+            }
+        }
+    }
+
     HMAP_FOR_EACH (row, txn_node, &txn->txn_rows) {
         const struct ovsdb_idl_table_class *class = row->table->class_;
 
@@ -3946,23 +3992,6 @@ ovsdb_idl_txn_commit(struct ovsdb_idl_txn *txn)
         } else if (row->old_datum != row->new_datum) {
             struct json *row_json;
             size_t idx;
-
-            if (!row->old_datum && class->is_singleton) {
-                /* We're inserting a row into a table that allows only a
-                 * single row.  (This is a fairly common OVSDB pattern for
-                 * storing global data.)  Verify that the table is empty
-                 * before inserting the row, so that we get a clear
-                 * verification-related failure if there was an insertion
-                 * race with another client. */
-                struct json *op = json_object_create();
-                json_array_add(operations, op);
-                json_object_put_string(op, "op", "wait");
-                json_object_put_string(op, "table", class->name);
-                json_object_put(op, "where", json_array_create_empty());
-                json_object_put(op, "timeout", json_integer_create(0));
-                json_object_put_string(op, "until", "==");
-                json_object_put(op, "rows", json_array_create_empty());
-            }
 
             struct json *op = json_object_create();
             json_object_put_string(op, "op",
@@ -4277,6 +4306,10 @@ ovsdb_idl_txn_write__(const struct ovsdb_idl_row *row_,
         goto discard_datum;
     }
 
+    bool index_row = is_index_row(row);
+    if (!index_row) {
+        ovsdb_idl_remove_from_indexes(row);
+    }
     if (hmap_node_is_null(&row->txn_node)) {
         hmap_insert(&row->table->db->txn->txn_rows, &row->txn_node,
                     uuid_hash(&row->uuid));
@@ -4299,6 +4332,9 @@ ovsdb_idl_txn_write__(const struct ovsdb_idl_row *row_,
     }
     (column->unparse)(row);
     (column->parse)(row, &row->new_datum[column_idx]);
+    if (!index_row) {
+        ovsdb_idl_add_to_indexes(row);
+    }
     return;
 
 discard_datum:
@@ -4426,6 +4462,8 @@ ovsdb_idl_txn_delete(const struct ovsdb_idl_row *row_)
     }
 
     ovs_assert(row->new_datum != NULL);
+    ovs_assert(!is_index_row(row_));
+    ovsdb_idl_remove_from_indexes(row_);
     if (!row->old_datum) {
         ovsdb_idl_row_unparse(row);
         ovsdb_idl_row_clear_new(row);
@@ -4473,6 +4511,7 @@ ovsdb_idl_txn_insert(struct ovsdb_idl_txn *txn,
     row->new_datum = xmalloc(class->n_columns * sizeof *row->new_datum);
     hmap_insert(&row->table->rows, &row->hmap_node, uuid_hash(&row->uuid));
     hmap_insert(&txn->txn_rows, &row->txn_node, uuid_hash(&row->uuid));
+    ovsdb_idl_add_to_indexes(row);
     return row;
 }
 

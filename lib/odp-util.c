@@ -2159,13 +2159,14 @@ parse_odp_action(const char *s, const struct simap *port_names,
                 key->nla_len += size;
                 ofpbuf_put(actions, mask + 1, size);
 
-                /* Add new padding as needed */
-                ofpbuf_put_zeros(actions, NLA_ALIGN(key->nla_len) -
-                                          key->nla_len);
-
                 /* 'actions' may have been reallocated by ofpbuf_put(). */
                 nested = ofpbuf_at_assert(actions, start_ofs, sizeof *nested);
                 nested->nla_type = OVS_ACTION_ATTR_SET_MASKED;
+
+                key = nested + 1;
+                /* Add new padding as needed */
+                ofpbuf_put_zeros(actions, NLA_ALIGN(key->nla_len) -
+                                          key->nla_len);
             }
         }
         ofpbuf_uninit(&maskbuf);
@@ -2473,6 +2474,8 @@ odp_nsh_hdr_from_attr(const struct nlattr *attr,
     size_t mdlen = 0;
     bool has_md1 = false;
     bool has_md2 = false;
+
+    memset(nsh_hdr, 0, size);
 
     NL_NESTED_FOR_EACH (a, left, attr) {
         uint16_t type = nl_attr_type(a);
@@ -5131,13 +5134,6 @@ static int
 parse_odp_key_mask_attr(const char *s, const struct simap *port_names,
                         struct ofpbuf *key, struct ofpbuf *mask)
 {
-    /* Skip UFID. */
-    ovs_u128 ufid;
-    int ufid_len = odp_ufid_from_string(s, &ufid);
-    if (ufid_len) {
-        return ufid_len;
-    }
-
     SCAN_SINGLE("skb_priority(", uint32_t, u32, OVS_KEY_ATTR_PRIORITY);
     SCAN_SINGLE("skb_mark(", uint32_t, u32, OVS_KEY_ATTR_SKB_MARK);
     SCAN_SINGLE_FULLY_MASKED("recirc_id(", uint32_t, u32,
@@ -5346,6 +5342,17 @@ odp_flow_from_string(const char *s, const struct simap *port_names,
         s += strspn(s, delimiters);
         if (!*s) {
             return 0;
+        }
+
+        /* Skip UFID. */
+        ovs_u128 ufid;
+        retval = odp_ufid_from_string(s, &ufid);
+        if (retval < 0) {
+            key->size = old_size;
+            return -retval;
+        } else if (retval > 0) {
+            s += retval;
+            s += s[0] == ' ' ? 1 : 0;
         }
 
         retval = parse_odp_key_mask_attr(s, port_names, key, mask);
@@ -7024,6 +7031,7 @@ commit_set_ipv6_action(const struct flow *flow, struct flow *base_flow,
     get_ipv6_key(&wc->masks, &mask, true);
     mask.ipv6_proto = 0;        /* Not writeable. */
     mask.ipv6_frag = 0;         /* Not writable. */
+    mask.ipv6_label &= htonl(IPV6_LABEL_MASK); /* Not writable. */
 
     if (flow_tnl_dst_is_set(&base_flow->tunnel) &&
         ((base_flow->nw_tos ^ flow->nw_tos) & IP_ECN_MASK) == 0) {
