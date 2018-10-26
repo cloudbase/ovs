@@ -16,6 +16,7 @@
 
 #include <config.h>
 #include "wmi.h"
+#include <net/if.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <tchar.h>
@@ -25,6 +26,20 @@
 
 
 VLOG_DEFINE_THIS_MODULE(wmi);
+
+static boolean
+normalize_port(char* dest, char* source, uint32_t length)
+{
+    if (length >= 14) {
+        if (memcmp(source, "vEthernet (", 11) != 0){
+            return FALSE;
+        }
+        memcpy(dest, source + 11, length - 12);
+        dest[length - 12] = '\0';
+        return true;
+    }
+    return false;
+}
 
 /* WMI Job values. */
 enum job_status
@@ -477,10 +492,21 @@ delete_wmi_port(char *name)
     /* Get the port with the element name equal to the name input. */
     wchar_t internal_port_query[WMI_QUERY_COUNT] = L"SELECT * from "
         L"Msvm_EthernetPortAllocationSettingData  WHERE ElementName = \"" ;
+    char* temp;
+    char transform[IFNAMSIZ];
+    boolean check = normalize_port(transform, name, (uint32_t)strlen(name));
 
-    wide_name = xmalloc((strlen(name) + 1) * sizeof(wchar_t));
+    if (!check) {
+        temp = name;
+    } else {
+        temp = transform;
+    }
 
-    if (!tranform_wide(name, wide_name)) {
+    VLOG_ERR("!!! USING name: %s", temp);
+
+    wide_name = xmalloc((strlen(temp) + 1) * sizeof(wchar_t));
+
+    if (!tranform_wide(temp, wide_name)) {
         retval = false;
         goto error;
     }
@@ -832,9 +858,21 @@ create_wmi_port(char *name) {
     wchar_t internal_port_query[WMI_QUERY_COUNT] = L"SELECT * FROM "
     L"Msvm_InternalEthernetPort WHERE ElementName = \"";
 
-    wide_name = xmalloc((strlen(name) + 1) * sizeof(wchar_t));
+    char* temp;
+    char transform[IFNAMSIZ];
+    boolean check = normalize_port(transform, name, (uint32_t)strlen(name));
 
-    if (!tranform_wide(name, wide_name)) {
+    if (!check) {
+        temp = name;
+    } else {
+        temp = transform;
+    }
+
+    VLOG_ERR("!!! USING name: %s", temp);
+
+    wide_name = xmalloc((strlen(temp) + 1) * sizeof(wchar_t));
+
+    if (!tranform_wide(temp, wide_name)) {
         retval = false;
         goto error;
     }
@@ -1303,6 +1341,11 @@ create_wmi_port(char *name) {
 
     if (FAILED(hres)) {
         retval = false;
+        goto error;
+    }
+
+    if (check) { // Do not rename the interface if we compensated for it
+        retval = true;
         goto error;
     }
 
