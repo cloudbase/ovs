@@ -452,7 +452,7 @@ format_odp_tnl_push_header(struct ds *ds, struct ovs_action_push_tnl *data)
     const void *l4;
     const struct udp_header *udp;
 
-    eth = (const struct eth_header *)data->header;
+    eth = ALIGNED_CAST(const struct eth_header *, data->header);
 
     l3 = eth + 1;
 
@@ -1072,7 +1072,7 @@ ovs_parse_tnl_push(const char *s, struct ovs_action_push_tnl *data)
     if (!ovs_scan_len(s, &n, "tnl_push(tnl_port(%"SCNi32"),", &data->tnl_port)) {
         return -EINVAL;
     }
-    eth = (struct eth_header *) data->header;
+    eth = ALIGNED_CAST(struct eth_header *, data->header);
     l3 = (data->header + sizeof *eth);
     ip = (struct ip_header *) l3;
     ip6 = (struct ovs_16aligned_ip6_hdr *) l3;
@@ -5636,6 +5636,7 @@ commit_set_ipv6_action(const struct flow *flow, struct flow *base_flow,
     get_ipv6_key(&wc->masks, &mask, true);
     mask.ipv6_proto = 0;        /* Not writeable. */
     mask.ipv6_frag = 0;         /* Not writable. */
+    mask.ipv6_label &= htonl(IPV6_LABEL_MASK); /* Not writable. */
 
     if (commit(OVS_KEY_ATTR_IPV6, use_masked, &key, &base, &mask, sizeof key,
                odp_actions)) {

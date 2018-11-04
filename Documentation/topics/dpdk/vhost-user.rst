@@ -170,20 +170,13 @@ where:
 Adding vhost-user ports to the guest (libvirt)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. TODO(stephenfin): This seems like something that wouldn't be acceptable in
-   production. Is this really required?
-
-To begin, you must change the user and group that libvirt runs under, configure
-access control policy and restart libvirtd.
+To begin, you must change the user and group that qemu runs under, and restart
+libvirtd.
 
 - In ``/etc/libvirt/qemu.conf`` add/edit the following lines::
 
       user = "root"
       group = "root"
-
-- Disable SELinux or set to permissive mode::
-
-      $ setenforce 0
 
 - Finally, restart the libvirtd process, For example, on Fedora::
 
@@ -278,9 +271,9 @@ To begin, instantiate a guest as described in :ref:`dpdk-vhost-user` or
 DPDK sources to VM and build DPDK::
 
     $ cd /root/dpdk/
-    $ wget http://fast.dpdk.org/rel/dpdk-16.11.4.tar.xz
-    $ tar xf dpdk-16.11.4.tar.xz
-    $ export DPDK_DIR=/root/dpdk/dpdk-stable-16.11.4
+    $ wget http://fast.dpdk.org/rel/dpdk-16.11.8.tar.xz
+    $ tar xf dpdk-16.11.8.tar.xz
+    $ export DPDK_DIR=/root/dpdk/dpdk-stable-16.11.8
     $ export DPDK_TARGET=x86_64-native-linuxapp-gcc
     $ export DPDK_BUILD=$DPDK_DIR/$DPDK_TARGET
     $ cd $DPDK_DIR
@@ -356,17 +349,11 @@ Sample XML
       <on_reboot>restart</on_reboot>
       <on_crash>destroy</on_crash>
       <devices>
-        <emulator>/usr/bin/qemu-kvm</emulator>
+        <emulator>/usr/bin/qemu-system-x86_64</emulator>
         <disk type='file' device='disk'>
           <driver name='qemu' type='qcow2' cache='none'/>
           <source file='/root/CentOS7_x86_64.qcow2'/>
           <target dev='vda' bus='virtio'/>
-        </disk>
-        <disk type='dir' device='disk'>
-          <driver name='qemu' type='fat'/>
-          <source dir='/usr/src/dpdk-stable-16.11.4'/>
-          <target dev='vdb' bus='virtio'/>
-          <readonly/>
         </disk>
         <interface type='vhostuser'>
           <mac address='00:00:00:00:00:01'/>

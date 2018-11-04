@@ -275,11 +275,17 @@ tnlid_in_use(const struct hmap *set, uint32_t tnlid)
 }
 
 static uint32_t
+next_tnlid(uint32_t tnlid, uint32_t max)
+{
+    return tnlid + 1 <= max ? tnlid + 1 : 1;
+}
+
+static uint32_t
 allocate_tnlid(struct hmap *set, const char *name, uint32_t max,
                uint32_t *hint)
 {
-    for (uint32_t tnlid = *hint + 1; tnlid != *hint;
-         tnlid = tnlid + 1 <= max ? tnlid + 1 : 1) {
+    for (uint32_t tnlid = next_tnlid(*hint, max); tnlid != *hint;
+         tnlid = next_tnlid(tnlid, max)) {
         if (!tnlid_in_use(set, tnlid)) {
             add_tnlid(set, tnlid);
             *hint = tnlid;
@@ -360,6 +366,7 @@ free_chassis_queueid(struct hmap *set, struct sbrec_chassis *chassis,
         if (uuid_equals(&chassis->header_.uuid, &node->chassis_uuid)
             && node->queue_id == queue_id) {
             hmap_remove(set, &node->key_node);
+            free(node);
             break;
         }
     }
