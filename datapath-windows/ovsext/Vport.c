@@ -642,10 +642,11 @@ HvDisconnectNic(POVS_SWITCH_CONTEXT switchContext,
     if (OvsIsRealExternalVport(vport)) {
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, FALSE);
         OvsPostVportEvent(&event);
-    }
-
-    if (isInternalPort) {
+    } else if (isInternalPort) {
         OvsInternalAdapterDown(vport->portNo, vport->netCfgInstanceId);
+        OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
+        OvsPostVportEvent(&event);
+    } else {
         OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
         OvsPostVportEvent(&event);
     }
