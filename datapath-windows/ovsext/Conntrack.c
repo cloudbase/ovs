@@ -453,10 +453,8 @@ OvsCtEntryDelete(POVS_CT_ENTRY entry, BOOLEAN forceDelete)
 
 static __inline NDIS_STATUS
 OvsDetectCtPacket(OvsForwardingContext *fwdCtx,
-                  OvsFlowKey *key,
-                  PNET_BUFFER_LIST *newNbl)
+                  OvsFlowKey *key)
 {
-    /* Currently we support only Unfragmented TCP packets */
     switch (ntohs(key->l2.dlType)) {
     case ETH_TYPE_IPV4:
         if (key->ipKey.nwFrag != OVS_FRAG_TYPE_NONE) {
@@ -464,8 +462,8 @@ OvsDetectCtPacket(OvsForwardingContext *fwdCtx,
                                           &fwdCtx->curNbl,
                                           fwdCtx->completionList,
                                           fwdCtx->fwdDetail->SourcePortId,
-                                          key->tunKey.tunnelId,
-                                          newNbl);
+                                          &fwdCtx->layers,
+                                          key->tunKey.tunnelId);
         }
         if (key->ipKey.nwProto == IPPROTO_TCP
             || key->ipKey.nwProto == IPPROTO_UDP
@@ -988,11 +986,10 @@ OvsExecuteConntrackAction(OvsForwardingContext *fwdCtx,
     PCHAR helper = NULL;
     NAT_ACTION_INFO natActionInfo;
     OVS_PACKET_HDR_INFO *layers = &fwdCtx->layers;
-    PNET_BUFFER_LIST newNbl = NULL;
     NDIS_STATUS status;
 
     memset(&natActionInfo, 0, sizeof natActionInfo);
-    status = OvsDetectCtPacket(fwdCtx, key, &newNbl);
+    status = OvsDetectCtPacket(fwdCtx, key);
     if (status != NDIS_STATUS_SUCCESS) {
         return status;
     }
