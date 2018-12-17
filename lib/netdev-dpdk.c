@@ -2559,43 +2559,57 @@ netdev_dpdk_get_features(const struct netdev *netdev,
 {
     struct netdev_dpdk *dev = netdev_dpdk_cast(netdev);
     struct rte_eth_link link;
+    uint32_t feature = 0;
 
     ovs_mutex_lock(&dev->mutex);
     link = dev->link;
     ovs_mutex_unlock(&dev->mutex);
 
-    if (link.link_duplex == ETH_LINK_HALF_DUPLEX) {
-        if (link.link_speed == ETH_SPEED_NUM_10M) {
-            *current = NETDEV_F_10MB_HD;
+    /* Match against OpenFlow defined link speed values. */
+    if (link.link_duplex == ETH_LINK_FULL_DUPLEX) {
+        switch (link.link_speed) {
+        case ETH_SPEED_NUM_10M:
+            feature |= NETDEV_F_10MB_FD;
+            break;
+        case ETH_SPEED_NUM_100M:
+            feature |= NETDEV_F_100MB_FD;
+            break;
+        case ETH_SPEED_NUM_1G:
+            feature |= NETDEV_F_1GB_FD;
+            break;
+        case ETH_SPEED_NUM_10G:
+            feature |= NETDEV_F_10GB_FD;
+            break;
+        case ETH_SPEED_NUM_40G:
+            feature |= NETDEV_F_40GB_FD;
+            break;
+        case ETH_SPEED_NUM_100G:
+            feature |= NETDEV_F_100GB_FD;
+            break;
+        default:
+            feature |= NETDEV_F_OTHER;
         }
-        if (link.link_speed == ETH_SPEED_NUM_100M) {
-            *current = NETDEV_F_100MB_HD;
-        }
-        if (link.link_speed == ETH_SPEED_NUM_1G) {
-            *current = NETDEV_F_1GB_HD;
-        }
-    } else if (link.link_duplex == ETH_LINK_FULL_DUPLEX) {
-        if (link.link_speed == ETH_SPEED_NUM_10M) {
-            *current = NETDEV_F_10MB_FD;
-        }
-        if (link.link_speed == ETH_SPEED_NUM_100M) {
-            *current = NETDEV_F_100MB_FD;
-        }
-        if (link.link_speed == ETH_SPEED_NUM_1G) {
-            *current = NETDEV_F_1GB_FD;
-        }
-        if (link.link_speed == ETH_SPEED_NUM_10G) {
-            *current = NETDEV_F_10GB_FD;
-        }
-        if (link.link_speed == ETH_SPEED_NUM_40G) {
-            *current = NETDEV_F_40GB_FD;
+    } else if (link.link_duplex == ETH_LINK_HALF_DUPLEX) {
+        switch (link.link_speed) {
+        case ETH_SPEED_NUM_10M:
+            feature |= NETDEV_F_10MB_HD;
+            break;
+        case ETH_SPEED_NUM_100M:
+            feature |= NETDEV_F_100MB_HD;
+            break;
+        case ETH_SPEED_NUM_1G:
+            feature |= NETDEV_F_1GB_HD;
+            break;
+        default:
+            feature |= NETDEV_F_OTHER;
         }
     }
 
     if (link.link_autoneg) {
-        *current |= NETDEV_F_AUTONEG;
+        feature |= NETDEV_F_AUTONEG;
     }
 
+    *current = feature;
     *advertised = *supported = *peer = 0;
 
     return 0;
@@ -2761,6 +2775,26 @@ netdev_dpdk_update_flags__(struct netdev_dpdk *dev,
     }
 
     if (dev->type == DPDK_DEV_ETH) {
+
+        if ((dev->flags ^ *old_flagsp) & NETDEV_UP) {
+            int err;
+
+            if (dev->flags & NETDEV_UP) {
+                err = rte_eth_dev_set_link_up(dev->port_id);
+            } else {
+                err = rte_eth_dev_set_link_down(dev->port_id);
+            }
+            if (err == -ENOTSUP) {
+                VLOG_INFO("Interface %s does not support link state "
+                          "configuration", netdev_get_name(&dev->up));
+            } else if (err < 0) {
+                VLOG_ERR("Interface %s link change error: %s",
+                         netdev_get_name(&dev->up), rte_strerror(-err));
+                dev->flags = *old_flagsp;
+                return -err;
+            }
+        }
+
         if (dev->flags & NETDEV_PROMISC) {
             rte_eth_promiscuous_enable(dev->port_id);
         }
@@ -2849,11 +2883,10 @@ netdev_dpdk_vhost_user_get_status(const struct netdev *netdev,
 
     for (int i = 0; i < vring_num; i++) {
         struct rte_vhost_vring vring;
-        char vhost_vring[16];
 
         rte_vhost_get_vhost_vring(vid, i, &vring);
-        snprintf(vhost_vring, 16, "vring_%d_size", i);
-        smap_add_format(args, vhost_vring, "%d", vring.size);
+        smap_add_nocopy(args, xasprintf("vring_%d_size", i),
+                        xasprintf("%d", vring.size));
     }
 
     ovs_mutex_unlock(&dev->mutex);
