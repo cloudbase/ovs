@@ -23,9 +23,14 @@
 #define DEFERRED_ACTION_EXEC_LEVEL           4
 
 typedef struct _OVS_DEFERRED_ACTION {
-    PNET_BUFFER_LIST    nbl;
-    PNL_ATTR            actions;
-    OvsFlowKey          key;
+    PNET_BUFFER_LIST     nbl;
+    OvsCompletionList*   completionList;
+    PNL_ATTR             actions;
+    OvsFlowKey           key;
+    POVS_SWITCH_CONTEXT  switchContext;
+    UINT32               portNo;
+    ULONG                sendFlags;
+    OVS_PACKET_HDR_INFO  layers;
 } OVS_DEFERRED_ACTION, *POVS_DEFERRED_ACTION;
 
 /*
@@ -50,7 +55,12 @@ OvsProcessDeferredActions(POVS_SWITCH_CONTEXT switchContext,
  * --------------------------------------------------------------------------
  */
 POVS_DEFERRED_ACTION
-OvsAddDeferredActions(PNET_BUFFER_LIST packet,
+OvsAddDeferredActions(POVS_SWITCH_CONTEXT switchContext,
+                      UINT32 portNo,
+                      ULONG sendFlags,
+                      OVS_PACKET_HDR_INFO layers,
+                      OvsCompletionList *completionList,
+                      PNET_BUFFER_LIST packet,
                       OvsFlowKey *key,
                       const PNL_ATTR actions);
 

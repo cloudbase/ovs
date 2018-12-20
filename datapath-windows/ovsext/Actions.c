@@ -625,6 +625,9 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 {
     NDIS_STATUS status = NDIS_STATUS_FAILURE;
     PNET_BUFFER_LIST newNbl = NULL;
+    UINT32 srcVportNo;
+    NDIS_SWITCH_NIC_INDEX srcNicIndex;
+    NDIS_SWITCH_PORT_ID srcPortId;
     POVS_BUFFER_CONTEXT ctx;
 
     /*
@@ -675,14 +678,25 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 
     if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
         ASSERT(newNbl);
-        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
-        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
+        /*
+         * Save the 'srcVportNo', 'srcPortId', 'srcNicIndex' so that
+         * this can be applied to the new NBL later on.
+         */
+        srcVportNo = switchFwdInfo.vport->portNo;
+        srcPortId = switchFwdInfo.vport->portId;
+        srcNicIndex = switchFwdInfo.vport->nicIndex;
 
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
+        status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
+                                      newNbl, srcVportNo, 0,
+                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
+                                      NULL,
+                                      &ovsFwdCtx->layers, FALSE);
         ovsFwdCtx->curNbl = newNbl;
         /* Update the forwarding detail for the new NBL */
+        ovsFwdCtx->fwdDetail->SourcePortId = srcPortId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = srcNicIndex;
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {
@@ -772,7 +786,7 @@ OvsTunnelPortRx(OvsForwardingContext *ovsFwdCtx)
         OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
                              newNbl, tunnelRxVport->portNo, 0,
                              NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                             ovsFwdCtx->completionList,
+                             NULL,
                              &ovsFwdCtx->layers, FALSE);
 
         /*
@@ -884,7 +898,7 @@ OvsOutputForwardingCtx(OvsForwardingContext *ovsFwdCtx)
             status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
                                           newNbl, ovsFwdCtx->srcVportNo, 0,
                                           NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                          ovsFwdCtx->completionList,
+                                          NULL,
                                           &ovsFwdCtx->layers, FALSE);
             if (status != NDIS_STATUS_SUCCESS) {
                 dropReason = L"Dropped due to resouces.";
@@ -1023,7 +1037,7 @@ OvsOutputBeforeSetAction(OvsForwardingContext *ovsFwdCtx)
         status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
                                       newNbl, tempVportNo, 0,
                                       NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                      ovsFwdCtx->completionList,
+                                      NULL,
                                       &ovsFwdCtx->layers, FALSE);
     }
 
@@ -1718,37 +1732,28 @@ OvsExecuteRecirc(OvsForwardingContext *ovsFwdCtx,
 {
     POVS_DEFERRED_ACTION deferredAction = NULL;
     PNET_BUFFER_LIST newNbl = NULL;
+    UNREFERENCED_PARAMETER(rem);
 
-    if (!NlAttrIsLast(actions, rem)) {
-        /*
-         * Recirc action is the not the last action of the action list, so we
-         * need to clone the packet.
-         */
-        newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
-                                   0, 0, TRUE /*copy NBL info*/);
-        /*
-         * Skip the recirc action when out of memory, but continue on with the
-         * rest of the action list.
-         */
-        if (newNbl == NULL) {
-            ovsActionStats.noCopiedNbl++;
-            return NDIS_STATUS_SUCCESS;
-        }
+    newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
+                               0, 0, TRUE /*copy NBL info*/);
+    /*
+     * Skip the recirc action when out of memory, but continue on with the
+     * rest of the action list.
+     */
+    if (newNbl == NULL) {
+        ovsActionStats.noCopiedNbl++;
+        return NDIS_STATUS_SUCCESS;
     }
 
-    if (newNbl) {
-        deferredAction = OvsAddDeferredActions(newNbl, key, NULL);
-    } else {
-        deferredAction = OvsAddDeferredActions(ovsFwdCtx->curNbl, key, NULL);
-    }
+    deferredAction = OvsAddDeferredActions(ovsFwdCtx->switchContext, ovsFwdCtx->srcVportNo,
+                                           ovsFwdCtx->sendFlags, ovsFwdCtx->layers, NULL,
+                                           newNbl, key, NULL);
 
     if (deferredAction) {
         deferredAction->key.recircId = NlAttrGetU32(actions);
     } else {
-        if (newNbl) {
-            ovsActionStats.deferredActionsQueueFull++;
-            OvsCompleteNBL(ovsFwdCtx->switchContext, newNbl, TRUE);
-        }
+        ovsActionStats.deferredActionsQueueFull++;
+        OvsCompleteNBL(ovsFwdCtx->switchContext, newNbl, TRUE);
     }
 
     return NDIS_STATUS_SUCCESS;
@@ -1889,7 +1894,9 @@ OvsExecuteSampleAction(OvsForwardingContext *ovsFwdCtx,
         return STATUS_SUCCESS;
     }
 
-    if (!OvsAddDeferredActions(newNbl, key, a)) {
+    if (!OvsAddDeferredActions(ovsFwdCtx->switchContext, ovsFwdCtx->srcVportNo,
+                               ovsFwdCtx->sendFlags, ovsFwdCtx->layers, NULL,
+                               newNbl, key, a)) {
         OVS_LOG_INFO(
             "Deferred actions limit reached, dropping sample action.");
         OvsCompleteNBL(ovsFwdCtx->switchContext, newNbl, TRUE);
@@ -2130,7 +2137,7 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
                                      ovsFwdCtx.srcVportNo,
                                      ovsFwdCtx.sendFlags,
                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(ovsFwdCtx.curNbl),
-                                     ovsFwdCtx.completionList,
+                                     NULL,
                                      &ovsFwdCtx.layers, FALSE);
                 key->ipKey.nwFrag = OVS_FRAG_TYPE_NONE;
             }
@@ -2154,9 +2161,6 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
                 goto dropit;
             }
 
-            if (NlAttrIsLast(a, rem)) {
-                goto exit;
-            }
             break;
         }
 
@@ -2214,6 +2218,8 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
         }
         default:
             status = NDIS_STATUS_NOT_SUPPORTED;
+            dropReason = L"OVS-sample action failed";
+            goto dropit;
             break;
         }
     }
@@ -2236,7 +2242,6 @@ dropit:
         OvsCompleteNBLForwardingCtx(&ovsFwdCtx, dropReason);
     }
 
-exit:
     return status;
 }
 

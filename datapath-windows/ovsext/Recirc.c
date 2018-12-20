@@ -275,7 +275,12 @@ OvsDeferredActionsQueuePush(POVS_DEFERRED_ACTION_QUEUE queue)
  * --------------------------------------------------------------------------
  */
 POVS_DEFERRED_ACTION
-OvsAddDeferredActions(PNET_BUFFER_LIST nbl,
+OvsAddDeferredActions(POVS_SWITCH_CONTEXT switchContext,
+                      UINT32 portNo,
+                      ULONG sendFlags,
+                      OVS_PACKET_HDR_INFO layers,
+                      OvsCompletionList *completionList,
+                      PNET_BUFFER_LIST nbl,
                       OvsFlowKey *key,
                       const PNL_ATTR actions)
 {
@@ -284,6 +289,11 @@ OvsAddDeferredActions(PNET_BUFFER_LIST nbl,
 
     deferredAction = OvsDeferredActionsQueuePush(queue);
     if (deferredAction) {
+        deferredAction->switchContext = switchContext;
+        deferredAction->layers = layers;
+        deferredAction->sendFlags = sendFlags;
+        deferredAction->portNo = portNo;
+        deferredAction->completionList = completionList;
         deferredAction->nbl = nbl;
         deferredAction->actions = actions;
         deferredAction->key = *key;
@@ -306,6 +316,11 @@ OvsProcessDeferredActions(POVS_SWITCH_CONTEXT switchContext,
                           ULONG sendFlags,
                           OVS_PACKET_HDR_INFO *layers)
 {
+    UNREFERENCED_PARAMETER(layers);
+    UNREFERENCED_PARAMETER(sendFlags);
+    UNREFERENCED_PARAMETER(portNo);
+    UNREFERENCED_PARAMETER(switchContext);
+    UNREFERENCED_PARAMETER(completionList);
     NDIS_STATUS status = NDIS_STATUS_SUCCESS;
     POVS_DEFERRED_ACTION_QUEUE queue = OvsDeferredActionsQueueGet();
     POVS_DEFERRED_ACTION deferredAction = NULL;
@@ -313,21 +328,21 @@ OvsProcessDeferredActions(POVS_SWITCH_CONTEXT switchContext,
     /* Process all deferred actions. */
     while ((deferredAction = OvsDeferredActionsQueuePop(queue)) != NULL) {
         if (deferredAction->actions) {
-            status = OvsDoExecuteActions(switchContext,
-                                         completionList,
+            status = OvsDoExecuteActions(deferredAction->switchContext,
+                                         deferredAction->completionList,
                                          deferredAction->nbl,
-                                         portNo,
-                                         sendFlags,
+                                         deferredAction->portNo,
+                                         deferredAction->sendFlags,
                                          &deferredAction->key, NULL,
-                                         layers, deferredAction->actions,
+                                         &deferredAction->layers, deferredAction->actions,
                                          NlAttrGetSize(deferredAction->actions));
         } else {
-            status = OvsDoRecirc(switchContext,
-                                 completionList,
+            status = OvsDoRecirc(deferredAction->switchContext,
+                                 deferredAction->completionList,
                                  deferredAction->nbl,
                                  &deferredAction->key,
-                                 portNo,
-                                 layers);
+                                 deferredAction->portNo,
+                                 &deferredAction->layers);
         }
     }
 
