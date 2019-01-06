@@ -152,7 +152,7 @@ HvCreatePort(POVS_SWITCH_CONTEXT switchContext,
      * Lookup by port name to see if this port with this name had been added
      * (and deleted) previously.
      */
-    vport = OvsFindVportByHvNameW(gOvsSwitchContext,
+    vport = OvsFindVportByHvNameW(switchContext,
                                   GetOvsPortType(portParam->PortType),
                                   portParam->PortFriendlyName.String,
                                   portParam->PortFriendlyName.Length);
@@ -724,6 +724,7 @@ done:
 /*
  * OVS Vport related functionality.
  */
+_Use_decl_annotations_
 POVS_VPORT_ENTRY
 OvsFindVportByPortNo(POVS_SWITCH_CONTEXT switchContext,
                      UINT32 portNo)
@@ -818,6 +819,7 @@ OvsFindTunnelVportByPortType(POVS_SWITCH_CONTEXT switchContext,
     return NULL;
 }
 
+_Use_decl_annotations_
 POVS_VPORT_ENTRY
 OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
                       OVS_VPORT_TYPE ovsPortType,
@@ -843,6 +845,7 @@ OvsFindVportByOvsName(POVS_SWITCH_CONTEXT switchContext,
 }
 
 /* OvsFindVportByHvName: "name" is assumed to be null-terminated */
+_Use_decl_annotations_
 POVS_VPORT_ENTRY
 OvsFindVportByHvNameW(POVS_SWITCH_CONTEXT switchContext,
                       OVS_VPORT_TYPE ovsPortType,
@@ -902,6 +905,7 @@ Cleanup:
     return vport;
 }
 
+_Use_decl_annotations_
 POVS_VPORT_ENTRY
 OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
                       OVS_VPORT_TYPE ovsPortType,
@@ -925,6 +929,7 @@ OvsFindVportByHvNameA(POVS_SWITCH_CONTEXT switchContext,
     return vport;
 }
 
+_Use_decl_annotations_
 POVS_VPORT_ENTRY
 OvsFindVportByPortIdAndNicIndex(POVS_SWITCH_CONTEXT switchContext,
                                 NDIS_SWITCH_PORT_ID portId,
@@ -2247,13 +2252,16 @@ static UINT32
 OvsComputeVportNo(POVS_SWITCH_CONTEXT switchContext)
 {
     /* we are not allowed to create the port OVS_DPPORT_NUMBER_LOCAL */
+    LOCK_STATE_EX lockState;
     for (ULONG i = OVS_DPPORT_NUMBER_LOCAL + 1; i < MAXUINT16; ++i) {
         POVS_VPORT_ENTRY vport;
-
+        NdisAcquireRWLockRead(switchContext->dispatchLock, &lockState, 0);
         vport = OvsFindVportByPortNo(switchContext, i);
         if (!vport) {
+            NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
             return i;
         }
+        NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
     }
 
     return OVS_DPPORT_NUMBER_INVALID;
