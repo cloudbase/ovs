@@ -625,9 +625,6 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 {
     NDIS_STATUS status = NDIS_STATUS_FAILURE;
     PNET_BUFFER_LIST newNbl = NULL;
-    UINT32 srcVportNo;
-    NDIS_SWITCH_NIC_INDEX srcNicIndex;
-    NDIS_SWITCH_PORT_ID srcPortId;
     POVS_BUFFER_CONTEXT ctx;
 
     /*
@@ -682,21 +679,12 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
          * Save the 'srcVportNo', 'srcPortId', 'srcNicIndex' so that
          * this can be applied to the new NBL later on.
          */
-        srcVportNo = switchFwdInfo.vport->portNo;
-        srcPortId = switchFwdInfo.vport->portId;
-        srcNicIndex = switchFwdInfo.vport->nicIndex;
-
+        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
+        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
+        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
-        status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
-                                      newNbl, srcVportNo, 0,
-                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
-                                      NULL,
-                                      &ovsFwdCtx->layers, FALSE);
         ovsFwdCtx->curNbl = newNbl;
-        /* Update the forwarding detail for the new NBL */
-        ovsFwdCtx->fwdDetail->SourcePortId = srcPortId;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = srcNicIndex;
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {
@@ -1736,6 +1724,7 @@ OvsExecuteRecirc(OvsForwardingContext *ovsFwdCtx,
 
     newNbl = OvsPartialCopyNBL(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
                                0, 0, TRUE /*copy NBL info*/);
+
     /*
      * Skip the recirc action when out of memory, but continue on with the
      * rest of the action list.
@@ -1797,7 +1786,9 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
     POVS_PACKET_QUEUE_ELEM elem;
     POVS_PACKET_HDR_INFO layers = &ovsFwdCtx->layers;
     BOOLEAN isRecv = FALSE;
+    LOCK_STATE_EX lockState;
 
+    NdisAcquireRWLockRead(ovsFwdCtx->switchContext->dispatchLock, &lockState, 0);
     POVS_VPORT_ENTRY vport = OvsFindVportByPortNo(ovsFwdCtx->switchContext,
                                                   ovsFwdCtx->srcVportNo);
 
@@ -1817,6 +1808,7 @@ OvsOutputUserspaceAction(OvsForwardingContext *ovsFwdCtx,
                                   NET_BUFFER_LIST_FIRST_NB(ovsFwdCtx->curNbl),
                                   isRecv,
                                   layers);
+    NdisReleaseRWLock(ovsFwdCtx->switchContext->dispatchLock, &lockState);
     if (elem) {
         LIST_ENTRY missedPackets;
         InitializeListHead(&missedPackets);
@@ -2340,14 +2332,17 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
         POVS_VPORT_ENTRY vport = NULL;
         LIST_ENTRY missedPackets;
         UINT32 num = 0;
+        LOCK_STATE_EX lockState;
 
         ovsFwdCtx.switchContext->datapath.misses++;
         InitializeListHead(&missedPackets);
+        NdisAcquireRWLockRead(switchContext->dispatchLock, &lockState, 0);
         vport = OvsFindVportByPortNo(switchContext, srcPortNo);
         if (vport == NULL || vport->ovsState != OVS_STATE_CONNECTED) {
             OvsCompleteNBLForwardingCtx(&ovsFwdCtx,
                 L"OVS-Dropped due to port removal");
             ovsActionStats.noVport++;
+            NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
             return NDIS_STATUS_SUCCESS;
         }
         status = OvsCreateAndAddPackets(NULL, 0, OVS_PACKET_CMD_MISS,
@@ -2357,6 +2352,7 @@ OvsDoRecirc(POVS_SWITCH_CONTEXT switchContext,
                                         &ovsFwdCtx.layers,
                                         ovsFwdCtx.switchContext,
                                         &missedPackets, &num);
+        NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
         if (num) {
             OvsQueuePackets(&missedPackets, num);
         }
