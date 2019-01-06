@@ -327,7 +327,7 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
             UINT32 srcIp)
 {
     NTSTATUS status = STATUS_NETWORK_UNREACHABLE;
-    NTSTATUS result = STATUS_SUCCESS;
+    NTSTATUS result = STATUS_INVALID_ADDRESS;
     PLIST_ENTRY head, link, next;
     ULONG minMetric = MAXULONG;
 
@@ -346,10 +346,11 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
         crtInstance = CONTAINING_RECORD(link, OVS_IPHELPER_INSTANCE, link);
 
         ExAcquireResourceExclusiveLite(&crtInstance->lock, TRUE);
-        result = GetBestRoute2(&crtInstance->internalRow.InterfaceLuid, 0,
-                               NULL, destinationAddress, 0, &crtRoute,
-                               &crtSrcAddr);
-
+        if (crtInstance->internalRow.InterfaceLuid.Value) {
+            result = GetBestRoute2(&crtInstance->internalRow.InterfaceLuid, 0,
+                                   NULL, destinationAddress, 0, &crtRoute,
+                                   &crtSrcAddr);
+        }
         if (result != STATUS_SUCCESS) {
             ExReleaseResourceLite(&crtInstance->lock);
             continue;
@@ -390,6 +391,9 @@ OvsGetRoute(SOCKADDR_INET *destinationAddress,
                                                    interfaceName2,
                                                    sizeof(WCHAR) *
                                                    wcslen(interfaceName2));
+                }
+                if (!vport) {
+                    status = STATUS_INVALID_PARAMETER;
                 }
                 NdisReleaseRWLock(gOvsSwitchContext->dispatchLock, &lockState);
             }
