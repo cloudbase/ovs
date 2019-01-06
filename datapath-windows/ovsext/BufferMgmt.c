@@ -828,6 +828,7 @@ OvsPartialCopyNBL(PVOID ovsContext,
 #endif
 
     OVS_LOG_LOUD("Partial Copy new NBL: %p", newNbl);
+    dstCtx->mru = srcCtx->mru;
     return newNbl;
 
 copy_list_info_error:
