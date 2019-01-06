@@ -1094,7 +1094,8 @@ OvsExecuteConntrackAction(OvsForwardingContext *fwdCtx,
     if (ctAttr) {
         eventmask = NlAttrGetU32(ctAttr);
         /* Only mark and label updates are supported. */
-        if (eventmask & (1 << IPCT_MARK | 1 << IPCT_LABEL))
+        if (eventmask & (1 << IPCT_MARK) ||
+            eventmask & (1 << IPCT_LABEL))
             postUpdateEvent = TRUE;
     }
     /* If newNbl is not allocated, use the current Nbl*/
