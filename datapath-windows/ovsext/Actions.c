@@ -192,13 +192,23 @@ OvsDetectTunnelRxPkt(OvsForwardingContext *ovsFwdCtx,
      */
     if (!flowKey->ipKey.nwFrag) {
         UINT16 dstPort = htons(flowKey->ipKey.l4.tpDst);
+        UINT8 nwProto;
 
-        ASSERT(flowKey->ipKey.nwProto != IPPROTO_GRE || dstPort == 0);
+        if (flowKey->l2.dlType == ETH_TYPE_IPV4_NBO) {
+            nwProto = flowKey->ipKey.nwProto;
+            dstPort = htons(flowKey->ipKey.l4.tpDst);
+        } else {
+            ASSERT(flowKey->l2.dlType == ETH_TYPE_IPV6_NBO);
+            nwProto = flowKey->ipv6Key.nwProto;
+            dstPort = htons(flowKey->ipv6Key.l4.tpDst);
+        }
+
+        ASSERT(nwProto != IPPROTO_GRE || dstPort == 0);
 
         tunnelVport =
             OvsFindTunnelVportByDstPortAndNWProto(ovsFwdCtx->switchContext,
                                                   dstPort,
-                                                  flowKey->ipKey.nwProto);
+                                                  nwProto);
         if (tunnelVport) {
             switch(tunnelVport->ovsType) {
             case OVS_VPORT_TYPE_STT:
@@ -219,7 +229,6 @@ OvsDetectTunnelRxPkt(OvsForwardingContext *ovsFwdCtx,
 
     // We might get tunnel packets even before the tunnel gets initialized.
     if (tunnelVport) {
-        ASSERT(ovsFwdCtx->tunnelRxNic == NULL);
         ovsFwdCtx->tunnelRxNic = tunnelVport;
         return TRUE;
     }
@@ -290,12 +299,12 @@ OvsDetectTunnelPkt(OvsForwardingContext *ovsFwdCtx,
                 (vport->ovsType != OVS_VPORT_TYPE_NETDEV &&
                  vport->ovsType != OVS_VPORT_TYPE_INTERNAL &&
                  !OvsIsTunnelVportType(vport->ovsType))) {
-                ovsFwdCtx->tunKey.dst = 0;
+                RtlZeroMemory(&ovsFwdCtx->tunKey.dst, sizeof(ovsFwdCtx->tunKey.dst));
             }
         }
 
         /* Tunnel the packet only if tunnel context is set. */
-        if (ovsFwdCtx->tunKey.dst != 0) {
+        if (!IsNullIpAddr(&ovsFwdCtx->tunKey.dst)) {
             switch(dstVport->ovsType) {
             case OVS_VPORT_TYPE_GRE:
                 ovsActionStats.txGre++;
@@ -470,7 +479,7 @@ static __inline VOID
 OvsClearTunTxCtx(OvsForwardingContext *ovsFwdCtx)
 {
     ovsFwdCtx->tunnelTxNic = NULL;
-    ovsFwdCtx->tunKey.dst = 0;
+    RtlZeroMemory(&ovsFwdCtx->tunKey.dst, sizeof(ovsFwdCtx->tunKey.dst));
 }
 
 
@@ -484,7 +493,7 @@ static __inline VOID
 OvsClearTunRxCtx(OvsForwardingContext *ovsFwdCtx)
 {
     ovsFwdCtx->tunnelRxNic = NULL;
-    ovsFwdCtx->tunKey.dst = 0;
+    RtlZeroMemory(&ovsFwdCtx->tunKey.dst, sizeof(ovsFwdCtx->tunKey.dst));
 }
 
 
@@ -548,6 +557,7 @@ OvsDoFlowLookupOutput(OvsForwardingContext *ovsFwdCtx)
     NDIS_STATUS status = NDIS_STATUS_SUCCESS;
     POVS_VPORT_ENTRY vport =
         OvsFindVportByPortNo(ovsFwdCtx->switchContext, ovsFwdCtx->srcVportNo);
+    BOOLEAN isNullDst = IsNullIpAddr(&ovsFwdCtx->tunKey.dst);
     if (vport == NULL || vport->ovsState != OVS_STATE_CONNECTED) {
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
             L"OVS-Dropped due to internal/tunnel port removal");
@@ -557,11 +567,11 @@ OvsDoFlowLookupOutput(OvsForwardingContext *ovsFwdCtx)
     ASSERT(vport->nicState == NdisSwitchNicStateConnected);
 
     /* Assert that in the Rx direction, key is always setup. */
-    ASSERT(ovsFwdCtx->tunnelRxNic == NULL || ovsFwdCtx->tunKey.dst != 0);
+    ASSERT(ovsFwdCtx->tunnelRxNic == NULL || !isNullDst);
     status =
         OvsExtractFlow(ovsFwdCtx->curNbl, ovsFwdCtx->srcVportNo,
                        &key, &ovsFwdCtx->layers,
-                       ovsFwdCtx->tunKey.dst != 0 ? &ovsFwdCtx->tunKey : NULL);
+                       isNullDst ? NULL : &ovsFwdCtx->tunKey);
     if (status != NDIS_STATUS_SUCCESS) {
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"OVS-Flow extract failed");
@@ -753,7 +763,7 @@ OvsTunnelPortRx(OvsForwardingContext *ovsFwdCtx)
         break;
     case OVS_VPORT_TYPE_VXLAN:
         status = OvsDecapVxlan(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
-                               &ovsFwdCtx->tunKey, &newNbl);
+                               &ovsFwdCtx->tunKey, &ovsFwdCtx->layers, &newNbl);
         break;
     case OVS_VPORT_TYPE_STT:
         status = OvsDecapStt(ovsFwdCtx->switchContext, ovsFwdCtx->curNbl,
@@ -915,11 +925,11 @@ OvsOutputForwardingCtx(OvsForwardingContext *ovsFwdCtx)
     if (ovsFwdCtx->tunnelTxNic != NULL) {
         status = OvsTunnelPortTx(ovsFwdCtx);
         ASSERT(ovsFwdCtx->tunnelTxNic == NULL);
-        ASSERT(ovsFwdCtx->tunKey.dst == 0);
+        ASSERT(IsNullIpAddr(&ovsFwdCtx->tunKey.dst));
     } else if (ovsFwdCtx->tunnelRxNic != NULL) {
         status = OvsTunnelPortRx(ovsFwdCtx);
         ASSERT(ovsFwdCtx->tunnelRxNic == NULL);
-        ASSERT(ovsFwdCtx->tunKey.dst == 0);
+        ASSERT(IsNullIpAddr(&ovsFwdCtx->tunKey.dst));
     }
     ASSERT(ovsFwdCtx->curNbl == NULL);
 
@@ -1702,10 +1712,10 @@ OvsExecuteSetAction(OvsForwardingContext *ovsFwdCtx,
 
     case OVS_KEY_ATTR_TUNNEL:
     {
-        OvsIPv4TunnelKey tunKey;
+        OvsTunnelKey tunKey;
         tunKey.flow_hash = (uint16)(hash ? *hash : OvsHashFlow(key));
         tunKey.dst_port = key->ipKey.l4.tpDst;
-        NTSTATUS convertStatus = OvsTunnelAttrToIPv4TunnelKey((PNL_ATTR)a, &tunKey);
+        NTSTATUS convertStatus = OvsTunnelAttrToTunnelKey((PNL_ATTR)a, &tunKey);
         status = SUCCEEDED(convertStatus) ? NDIS_STATUS_SUCCESS : NDIS_STATUS_FAILURE;
         ASSERT(status == NDIS_STATUS_SUCCESS);
         RtlCopyMemory(&ovsFwdCtx->tunKey, &tunKey, sizeof ovsFwdCtx->tunKey);

@@ -205,7 +205,7 @@ OvsInjectPacketThroughActions(PNET_BUFFER_LIST pNbl,
                               OVS_TUNNEL_PENDED_PACKET *packet)
 {
     NTSTATUS status;
-    OvsIPv4TunnelKey tunnelKey;
+    OvsTunnelKey tunnelKey;
     NET_BUFFER *pNb;
     ULONG sendCompleteFlags = 0;
     BOOLEAN dispatch;

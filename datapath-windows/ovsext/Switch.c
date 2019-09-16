@@ -393,6 +393,8 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
         sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
     switchContext->ovsPortNameHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
         sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
+    switchContext->ovsPortGUIDNameHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
+        sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
     switchContext->portIdHashArray= (PLIST_ENTRY)OvsAllocateMemoryWithTag(
         sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
     switchContext->pidHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
@@ -408,6 +410,7 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
         switchContext->dispatchLock == NULL ||
         switchContext->portNoHashArray == NULL ||
         switchContext->ovsPortNameHashArray == NULL ||
+        switchContext->ovsPortGUIDNameHashArray == NULL ||
         switchContext->portIdHashArray== NULL ||
         switchContext->pidHashArray == NULL ||
         switchContext->tunnelVportsArray == NULL) {
@@ -420,6 +423,10 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
         }
         if (switchContext->ovsPortNameHashArray) {
             OvsFreeMemoryWithTag(switchContext->ovsPortNameHashArray,
+                                 OVS_SWITCH_POOL_TAG);
+        }
+        if (switchContext->ovsPortGUIDNameHashArray) {
+            OvsFreeMemoryWithTag(switchContext->ovsPortGUIDNameHashArray,
                                  OVS_SWITCH_POOL_TAG);
         }
         if (switchContext->portIdHashArray) {
@@ -444,6 +451,7 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
 
     for (i = 0; i < OVS_MAX_VPORT_ARRAY_SIZE; i++) {
         InitializeListHead(&switchContext->ovsPortNameHashArray[i]);
+        InitializeListHead(&switchContext->ovsPortGUIDNameHashArray[i]);
         InitializeListHead(&switchContext->portIdHashArray[i]);
         InitializeListHead(&switchContext->portNoHashArray[i]);
         InitializeListHead(&switchContext->tunnelVportsArray[i]);
@@ -490,6 +498,9 @@ OvsDeleteSwitchContext(POVS_SWITCH_CONTEXT switchContext)
     OvsFreeMemoryWithTag(switchContext->ovsPortNameHashArray,
                          OVS_SWITCH_POOL_TAG);
     switchContext->ovsPortNameHashArray = NULL;
+    OvsFreeMemoryWithTag(switchContext->ovsPortGUIDNameHashArray,
+                         OVS_SWITCH_POOL_TAG);
+    switchContext->ovsPortGUIDNameHashArray = NULL;
     OvsFreeMemoryWithTag(switchContext->portIdHashArray,
                          OVS_SWITCH_POOL_TAG);
     switchContext->portIdHashArray = NULL;

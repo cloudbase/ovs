@@ -217,6 +217,7 @@ BOOLEAN NlMsgPutTailU8(PNL_BUFFER buf, UINT16 type, UINT8 value);
 BOOLEAN NlMsgPutTailU16(PNL_BUFFER buf, UINT16 type, UINT16 value);
 BOOLEAN NlMsgPutTailU32(PNL_BUFFER buf, UINT16 type, UINT32 value);
 BOOLEAN NlMsgPutTailU64(PNL_BUFFER buf, UINT16 type, UINT64 value);
+BOOLEAN NlMsgPutTailU128(PNL_BUFFER buf, UINT16 type, ovs_u128 value);
 BOOLEAN NlMsgPutTailString(PNL_BUFFER buf, UINT16 type, PCHAR value);
 
 BOOLEAN NlMsgPutHead(PNL_BUFFER buf, const PCHAR data, UINT32 len);

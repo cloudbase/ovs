@@ -158,6 +158,7 @@ typedef struct _OVS_SWITCH_CONTEXT
     PLIST_ENTRY             portNoHashArray;        // based on ovs port number
     PLIST_ENTRY             tunnelVportsArray;      // based on ovs dst port number
     PLIST_ENTRY             ovsPortNameHashArray;   // based on ovsName
+    PLIST_ENTRY             ovsPortGUIDNameHashArray;   // based on ovsName
     PLIST_ENTRY             pidHashArray;           // based on packet pids
     NDIS_SPIN_LOCK          pidHashLock;            // Lock for pidHash table
 

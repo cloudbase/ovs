@@ -55,7 +55,7 @@ typedef struct _OVS_IPHELPER_INSTANCE
     GUID                netCfgId;
     MIB_IF_ROW2         internalRow;
     MIB_IPINTERFACE_ROW internalIPRow;
-    UINT32              ipAddress;
+    SOCKADDR_INET       ipAddress;
 
     ERESOURCE           lock;
 } OVS_IPHELPER_INSTANCE, *POVS_IPHELPER_INSTANCE;
@@ -63,7 +63,7 @@ typedef struct _OVS_IPHELPER_INSTANCE
 typedef struct _OVS_IPNEIGH_ENTRY {
     UINT8                       macAddr[ETH_ADDR_LEN];
     UINT16                      refCount;
-    UINT32                      ipAddr;
+    SOCKADDR_INET               ipAddr;
     UINT32                      pad;
     UINT64                      timeout;
     LIST_ENTRY                  link;
@@ -74,7 +74,7 @@ typedef struct _OVS_IPNEIGH_ENTRY {
 
 typedef struct _OVS_IPFORWARD_ENTRY {
     IP_ADDRESS_PREFIX prefix;
-    UINT32            nextHop;
+    SOCKADDR_INET     nextHop;
     UINT16            refCount;
     LIST_ENTRY        link;
     LIST_ENTRY        fwdList;
@@ -82,14 +82,14 @@ typedef struct _OVS_IPFORWARD_ENTRY {
 
 typedef union _OVS_FWD_INFO {
     struct {
-        UINT32        dstIpAddr;
-        UINT32        srcIpAddr;
+        SOCKADDR_INET dstIpAddr;
+        SOCKADDR_INET srcIpAddr;
         UINT8         dstMacAddr[ETH_ADDR_LEN];
         UINT8         srcMacAddr[ETH_ADDR_LEN];
         UINT32        srcPortNo;
         POVS_VPORT_ENTRY   vport;
     };
-    UINT64            value[4];
+    UINT64            value[10];
 } OVS_FWD_INFO, *POVS_FWD_INFO;
 
 typedef struct _OVS_FWD_ENTRY {
@@ -119,7 +119,7 @@ typedef VOID (*OvsIPHelperCallback)(PNET_BUFFER_LIST nbl,
 typedef struct _OVS_FWD_REQUEST_INFO {
     PNET_BUFFER_LIST  nbl;
     UINT32            inPort;
-    OvsIPv4TunnelKey  tunnelKey;
+    OvsTunnelKey  tunnelKey;
     OvsIPHelperCallback cb;
     PVOID             cbData1;
     PVOID             cbData2;
@@ -157,7 +157,7 @@ NTSTATUS OvsFwdIPHelperRequest(PNET_BUFFER_LIST nbl, UINT32 inPort,
                                OvsIPHelperCallback cb,
                                PVOID cbData1,
                                PVOID cbData2);
-NTSTATUS OvsLookupIPFwdInfo(UINT32 srcIp, UINT32 dstIp, POVS_FWD_INFO info);
+NTSTATUS OvsLookupIPFwdInfo(SOCKADDR_INET srcIp, SOCKADDR_INET dstIp, POVS_FWD_INFO info);
 VOID OvsCancelFwdIpHelperRequest(PNET_BUFFER_LIST nbl);
 
 #endif /* __IP_HELPER_H_ */

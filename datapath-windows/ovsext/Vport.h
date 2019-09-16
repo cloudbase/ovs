@@ -81,6 +81,7 @@ typedef struct _OVS_VPORT_FULL_STATS {
  */
 typedef struct _OVS_VPORT_ENTRY {
     LIST_ENTRY                   ovsNameLink;
+    LIST_ENTRY                   ovsGUIDNameLink;
     LIST_ENTRY                   portIdLink;
     LIST_ENTRY                   portNoLink;
     LIST_ENTRY                   tunnelVportLink;
@@ -139,6 +140,9 @@ _Requires_lock_held_(switchContext->dispatchLock)
 POVS_VPORT_ENTRY OvsFindVportByPortIdAndNicIndex(POVS_SWITCH_CONTEXT switchContext,
                                                  NDIS_SWITCH_PORT_ID portId,
                                                  NDIS_SWITCH_NIC_INDEX index);
+_Requires_lock_held_(switchContext->dispatchLock)
+POVS_VPORT_ENTRY OvsFindVportByGUID(POVS_SWITCH_CONTEXT switchContext,
+                                    GUID guid);
 BOOLEAN OvsIsExternalVportByPortId(POVS_SWITCH_CONTEXT switchContext,
                                    NDIS_SWITCH_PORT_ID portId);
 POVS_VPORT_ENTRY OvsFindTunnelVportByDstPortAndType(POVS_SWITCH_CONTEXT switchContext,

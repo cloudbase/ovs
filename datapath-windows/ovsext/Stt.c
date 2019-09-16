@@ -46,7 +46,7 @@ static OVS_STT_THREAD_CTX sttDefragThreadCtx;
 
 static NDIS_STATUS
 OvsDoEncapStt(POVS_VPORT_ENTRY vport, PNET_BUFFER_LIST curNbl,
-              const OvsIPv4TunnelKey *tunKey,
+              const OvsTunnelKey *tunKey,
               const POVS_FWD_INFO fwdInfo,
               POVS_PACKET_HDR_INFO layers,
               POVS_SWITCH_CONTEXT switchContext,
@@ -104,7 +104,7 @@ OvsCleanupSttTunnel(POVS_VPORT_ENTRY vport)
 NDIS_STATUS
 OvsEncapStt(POVS_VPORT_ENTRY vport,
             PNET_BUFFER_LIST curNbl,
-            OvsIPv4TunnelKey *tunKey,
+            OvsTunnelKey *tunKey,
             POVS_SWITCH_CONTEXT switchContext,
             POVS_PACKET_HDR_INFO layers,
             PNET_BUFFER_LIST *newNbl,
@@ -140,7 +140,7 @@ OvsEncapStt(POVS_VPORT_ENTRY vport,
 NDIS_STATUS
 OvsDoEncapStt(POVS_VPORT_ENTRY vport,
               PNET_BUFFER_LIST curNbl,
-              const OvsIPv4TunnelKey *tunKey,
+              const OvsTunnelKey *tunKey,
               const POVS_FWD_INFO fwdInfo,
               POVS_PACKET_HDR_INFO layers,
               POVS_SWITCH_CONTEXT switchContext,
@@ -301,8 +301,8 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
         outerIpHdr->ttl = tunKey->ttl? tunKey->ttl : 64;
         outerIpHdr->protocol = IPPROTO_TCP;
         outerIpHdr->check = 0;
-        outerIpHdr->saddr = fwdInfo->srcIpAddr;
-        outerIpHdr->daddr = tunKey->dst;
+        outerIpHdr->saddr = fwdInfo->srcIpAddr.Ipv4.sin_addr.s_addr;
+        outerIpHdr->daddr = tunKey->dst.Ipv4.sin_addr.s_addr;
 
         /* L4 header */
         RtlZeroMemory(outerTcpHdr, sizeof *outerTcpHdr);
@@ -370,8 +370,8 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
             */
             outerIpHdr->check = IPChecksum((UINT8 *)outerIpHdr,
                 sizeof *outerIpHdr, 0);
-            outerTcpHdr->check = IPPseudoChecksum(&fwdInfo->srcIpAddr,
-                (uint32 *)&tunKey->dst,
+            outerTcpHdr->check = IPPseudoChecksum((UINT32*)&fwdInfo->srcIpAddr.Ipv4.sin_addr.s_addr,
+                (UINT32*)&tunKey->dst.Ipv4.sin_addr.s_addr,
                 IPPROTO_TCP, (uint16)0);
 
             lsoInfo.Value = 0;
@@ -382,8 +382,8 @@ OvsDoEncapStt(POVS_VPORT_ENTRY vport,
             NET_BUFFER_LIST_INFO(curNbl,
                 TcpLargeSendNetBufferListInfo) = lsoInfo.Value;
         } else {
-            outerTcpHdr->check = IPPseudoChecksum(&fwdInfo->srcIpAddr,
-                                            (uint32 *) &tunKey->dst,
+            outerTcpHdr->check = IPPseudoChecksum((UINT32*)&fwdInfo->srcIpAddr.Ipv4.sin_addr.s_addr,
+                                            (UINT32*)&tunKey->dst.Ipv4.sin_addr.s_addr,
                                             IPPROTO_TCP,
                                             (uint16) tcpChksumLen);
         }
@@ -912,7 +912,7 @@ OvsDecapSetOffloads(PNET_BUFFER_LIST *curNbl,
 NDIS_STATUS
 OvsDecapStt(POVS_SWITCH_CONTEXT switchContext,
             PNET_BUFFER_LIST curNbl,
-            OvsIPv4TunnelKey *tunKey,
+            OvsTunnelKey *tunKey,
             PNET_BUFFER_LIST *newNbl)
 {
     NDIS_STATUS status;
@@ -1004,8 +1004,10 @@ OvsDecapStt(POVS_SWITCH_CONTEXT switchContext,
     ASSERT(sttHdr);
 
     /* Initialize the tunnel key */
-    tunKey->dst = ipHdr->daddr;
-    tunKey->src = ipHdr->saddr;
+    tunKey->dst.Ipv4.sin_addr.s_addr = ipHdr->daddr;
+    tunKey->dst.si_family = AF_INET;
+    tunKey->src.Ipv4.sin_addr.s_addr = ipHdr->saddr;
+    tunKey->src.si_family = AF_INET;
     tunKey->tunnelId = sttHdr->key;
     tunKey->flags = OVS_TNL_F_KEY;
     tunKey->tos = ipHdr->tos;

@@ -69,7 +69,7 @@ OvsCleanupGeneveTunnel(POVS_VPORT_ENTRY vport)
 
 NDIS_STATUS OvsEncapGeneve(POVS_VPORT_ENTRY vport,
                            PNET_BUFFER_LIST curNbl,
-                           OvsIPv4TunnelKey *tunKey,
+                           OvsTunnelKey *tunKey,
                            POVS_SWITCH_CONTEXT switchContext,
                            POVS_PACKET_HDR_INFO layers,
                            PNET_BUFFER_LIST *newNbl,
@@ -191,10 +191,11 @@ NDIS_STATUS OvsEncapGeneve(POVS_VPORT_ENTRY vport,
                           IP_DF_NBO : 0;
         ipHdr->ttl = tunKey->ttl ? tunKey->ttl : GENEVE_DEFAULT_TTL;
         ipHdr->protocol = IPPROTO_UDP;
-        ASSERT(tunKey->dst == fwdInfo.dstIpAddr);
-        ASSERT(tunKey->src == fwdInfo.srcIpAddr || tunKey->src == 0);
-        ipHdr->saddr = fwdInfo.srcIpAddr;
-        ipHdr->daddr = fwdInfo.dstIpAddr;
+        ASSERT(IsEqualIpAddr(&tunKey->dst, &fwdInfo.dstIpAddr));
+        ASSERT(IsEqualIpAddr(&tunKey->src, &fwdInfo.srcIpAddr) ||
+               IsNullIpAddr(&tunKey->src));
+        ipHdr->saddr = fwdInfo.srcIpAddr.Ipv4.sin_addr.s_addr;
+        ipHdr->daddr = fwdInfo.dstIpAddr.Ipv4.sin_addr.s_addr;
         ipHdr->check = 0;
 
         /* UDP header */
@@ -247,7 +248,7 @@ ret_error:
 
 NDIS_STATUS OvsDecapGeneve(POVS_SWITCH_CONTEXT switchContext,
                            PNET_BUFFER_LIST curNbl,
-                           OvsIPv4TunnelKey *tunKey,
+                           OvsTunnelKey *tunKey,
                            PNET_BUFFER_LIST *newNbl)
 {
     PNET_BUFFER curNb;
@@ -301,8 +302,10 @@ NDIS_STATUS OvsDecapGeneve(POVS_SWITCH_CONTEXT switchContext,
     ethHdr = (EthHdr *)bufferStart;
     /* XXX: Handle IP options. */
     ipHdr = (IPHdr *)(bufferStart + layers.l3Offset);
-    tunKey->src = ipHdr->saddr;
-    tunKey->dst = ipHdr->daddr;
+    tunKey->src.Ipv4.sin_addr.s_addr = ipHdr->saddr;
+    tunKey->src.Ipv4.sin_family = AF_INET;
+    tunKey->dst.Ipv4.sin_addr.s_addr = ipHdr->daddr;
+    tunKey->dst.Ipv4.sin_family = AF_INET;
     tunKey->tos = ipHdr->tos;
     tunKey->ttl = ipHdr->ttl;
     tunKey->pad = 0;
@@ -316,7 +319,7 @@ NDIS_STATUS OvsDecapGeneve(POVS_SWITCH_CONTEXT switchContext,
 
     /* Calculate and verify UDP checksum if NIC didn't do it. */
     if (udpHdr->check != 0) {
-        status = OvsCalculateUDPChecksum(curNbl, curNb, ipHdr, udpHdr,
+        status = OvsCalculateUDPChecksum(curNbl, curNb, ethHdr, udpHdr,
                                          packetLength, &layers);
         tunKey->flags |= OVS_TNL_F_CSUM;
         if (status != NDIS_STATUS_SUCCESS) {

@@ -37,7 +37,7 @@ NDIS_STATUS OvsValidateUDPChecksum(PNET_BUFFER_LIST curNbl,
                                    BOOLEAN udpCsumZero);
 NDIS_STATUS OvsCalculateUDPChecksum(PNET_BUFFER_LIST curNbl,
                                     PNET_BUFFER curNb,
-                                    IPHdr *ipHdr,
+                                    EthHdr *ipHdr,
                                     UDPHdr *udpHdr,
                                     UINT32 packetLength,
                                     POVS_PACKET_HDR_INFO layers);

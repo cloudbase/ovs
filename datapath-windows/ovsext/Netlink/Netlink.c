@@ -360,6 +360,18 @@ NlMsgPutTailU64(PNL_BUFFER buf, UINT16 type, UINT64 value)
 
 /*
  * ---------------------------------------------------------------------------
+ * Adds an attribute of 'type' and 64 bit payload at the tail end of buffer.
+ * Refer nl_msg_put_u64 for more details.
+ * ---------------------------------------------------------------------------
+ */
+BOOLEAN
+NlMsgPutTailU128(PNL_BUFFER buf, UINT16 type, ovs_u128 value)
+{
+    return (NlMsgPutTailUnspec(buf, type, (PCHAR)(&value), sizeof(value)));
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Adds an attribute of 'type' and string payload.
  * Refer nl_msg_put_string for more details.
  * ---------------------------------------------------------------------------

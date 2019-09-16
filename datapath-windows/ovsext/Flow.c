@@ -86,7 +86,7 @@ static NTSTATUS OvsDoDumpFlows(OvsFlowDumpInput *dumpInput,
                                UINT32 *replyLen);
 static NTSTATUS OvsProbeSupportedFeature(POVS_MESSAGE msgIn,
                                          PNL_ATTR keyAttr);
-static UINT16 OvsGetFlowL2Offset(const OvsIPv4TunnelKey *tunKey);
+static UINT16 OvsGetFlowL2Offset(const OvsTunnelKey *tunKey);
 
 #define OVS_FLOW_TABLE_SIZE 2048
 #define OVS_FLOW_TABLE_MASK (OVS_FLOW_TABLE_SIZE -1)
@@ -195,7 +195,7 @@ const NL_POLICY nlFlowTunnelKeyPolicy[] = {
     [OVS_TUNNEL_KEY_ATTR_IPV4_SRC] = {.type = NL_A_UNSPEC, .minLen = 4,
                                       .maxLen = 4, .optional = TRUE},
     [OVS_TUNNEL_KEY_ATTR_IPV4_DST] = {.type = NL_A_UNSPEC, .minLen = 4 ,
-                                      .maxLen = 4, .optional = FALSE},
+                                      .maxLen = 4, .optional = TRUE},
     [OVS_TUNNEL_KEY_ATTR_TOS] = {.type = NL_A_UNSPEC, .minLen = 1,
                                  .maxLen = 1, .optional = TRUE},
     [OVS_TUNNEL_KEY_ATTR_TTL] = {.type = NL_A_UNSPEC, .minLen = 1,
@@ -207,7 +207,9 @@ const NL_POLICY nlFlowTunnelKeyPolicy[] = {
     [OVS_TUNNEL_KEY_ATTR_OAM] = {.type = NL_A_UNSPEC, .minLen = 0,
                                  .maxLen = 0, .optional = TRUE},
     [OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS] = {.type = NL_A_VAR_LEN,
-                                         .optional = TRUE}
+                                         .optional = TRUE},
+    [OVS_TUNNEL_KEY_ATTR_IPV6_SRC] = {.type = NL_A_UNSPEC,.minLen = sizeof(struct in6_addr),.maxLen= sizeof(struct in6_addr),.optional = TRUE },
+    [OVS_TUNNEL_KEY_ATTR_IPV6_DST] = {.type = NL_A_UNSPEC,.minLen = sizeof(struct in6_addr),.maxLen= sizeof(struct in6_addr),.optional = TRUE }
 };
 const UINT32 nlFlowTunnelKeyPolicyLen = ARRAY_SIZE(nlFlowTunnelKeyPolicy);
 
@@ -1017,7 +1019,7 @@ MapFlowKeyToNlKey(PNL_BUFFER nlBuf,
         goto done;
     }
 
-    if (flowKey->tunKey.dst) {
+    if (!IsNullIpAddr(&flowKey->tunKey.dst)) {
         rc = MapFlowTunKeyToNlKey(nlBuf, &(flowKey->tunKey),
                                   tunKeyType);
         if (rc != STATUS_SUCCESS) {
@@ -1038,12 +1040,12 @@ error_nested_start:
 /*
  *----------------------------------------------------------------------------
  *  MapFlowTunKeyToNlKey --
- *   Maps OvsIPv4TunnelKey to OVS_TUNNEL_KEY_ATTR_ID attribute.
+ *   Maps OvsTunnelKey to OVS_TUNNEL_KEY_ATTR_ID attribute.
  *----------------------------------------------------------------------------
  */
 NTSTATUS
 MapFlowTunKeyToNlKey(PNL_BUFFER nlBuf,
-                     OvsIPv4TunnelKey *tunKey,
+                     OvsTunnelKey *tunKey,
                      UINT16 tunKeyType)
 {
     NTSTATUS rc = STATUS_SUCCESS;
@@ -1062,16 +1064,41 @@ MapFlowTunKeyToNlKey(PNL_BUFFER nlBuf,
         goto done;
     }
 
-    if (!NlMsgPutTailU32(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV4_DST,
-                         tunKey->dst)) {
-        rc = STATUS_UNSUCCESSFUL;
-        goto done;
+    if (!IsNullIpAddr(&tunKey->dst)) {
+        if (tunKey->dst.si_family == AF_INET) {
+            if (!NlMsgPutTailU32(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV4_DST,
+                tunKey->dst.Ipv4.sin_addr.s_addr)) {
+                rc = STATUS_UNSUCCESSFUL;
+                goto done;
+            }
+        }
+        if (tunKey->dst.si_family == AF_INET6) {
+            if (!NlMsgPutTailUnspec(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV6_DST,
+                (PCHAR)&tunKey->dst.Ipv6.sin6_addr,
+                sizeof(tunKey->dst.Ipv6.sin6_addr))) {
+                rc = STATUS_UNSUCCESSFUL;
+                goto done;
+            }
+        }
     }
 
-    if (!NlMsgPutTailU32(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV4_SRC,
-                         tunKey->src)) {
-        rc = STATUS_UNSUCCESSFUL;
-        goto done;
+    if (!IsNullIpAddr(&tunKey->src)) {
+        if (tunKey->src.si_family == AF_INET) {
+
+            if (!NlMsgPutTailU32(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV4_SRC,
+                tunKey->src.Ipv4.sin_addr.s_addr)) {
+                rc = STATUS_UNSUCCESSFUL;
+                goto done;
+            }
+            if (tunKey->src.si_family == AF_INET6) {
+                if (!NlMsgPutTailUnspec(nlBuf, OVS_TUNNEL_KEY_ATTR_IPV6_SRC,
+                    (PCHAR)&tunKey->src.Ipv6.sin6_addr,
+                    sizeof(tunKey->src.Ipv6.sin6_addr))) {
+                    rc = STATUS_UNSUCCESSFUL;
+                    goto done;
+                }
+            }
+        }
     }
 
     if (!NlMsgPutTailU8(nlBuf, OVS_TUNNEL_KEY_ATTR_TOS,
@@ -1748,7 +1775,7 @@ _MapKeyAttrToFlowPut(PNL_ATTR *keyAttrs,
  */
 static __inline NTSTATUS
 OvsTunnelAttrToGeneveOptions(PNL_ATTR attr,
-                             OvsIPv4TunnelKey *tunKey)
+                             OvsTunnelKey *tunKey)
 {
     UINT32 optLen = NlAttrGetSize(attr);
     GeneveOptionHdr *option;
@@ -1788,13 +1815,13 @@ OvsTunnelAttrToGeneveOptions(PNL_ATTR attr,
 
 /*
  *----------------------------------------------------------------------------
- *  OvsTunnelAttrToIPv4TunnelKey --
+ *  OvsTunnelAttrToTunnelKey --
  *    Converts OVS_KEY_ATTR_TUNNEL attribute to tunKey.
  *----------------------------------------------------------------------------
  */
 NTSTATUS
-OvsTunnelAttrToIPv4TunnelKey(PNL_ATTR attr,
-                             OvsIPv4TunnelKey *tunKey)
+OvsTunnelAttrToTunnelKey(PNL_ATTR attr,
+                         OvsTunnelKey *tunKey)
 {
     PNL_ATTR a;
     INT rem;
@@ -1812,10 +1839,26 @@ OvsTunnelAttrToIPv4TunnelKey(PNL_ATTR attr,
             tunKey->flags |= OVS_TNL_F_KEY;
             break;
         case OVS_TUNNEL_KEY_ATTR_IPV4_SRC:
-            tunKey->src = NlAttrGetBe32(a);
+            tunKey->src.Ipv4.sin_addr.s_addr = NlAttrGetBe32(a);
+            tunKey->src.si_family = AF_INET;
             break;
         case OVS_TUNNEL_KEY_ATTR_IPV4_DST:
-            tunKey->dst = NlAttrGetBe32(a);
+            tunKey->dst.Ipv4.sin_addr.s_addr = NlAttrGetBe32(a);
+            tunKey->dst.si_family = AF_INET;
+            break;
+        case OVS_TUNNEL_KEY_ATTR_IPV6_SRC:
+            RtlCopyMemory(&tunKey->src.Ipv6.sin6_addr,
+                          NlAttrGetUnspec(a,
+                          sizeof(tunKey->src.Ipv6.sin6_addr)),
+                          sizeof(tunKey->src.Ipv6.sin6_addr));
+            tunKey->src.si_family = AF_INET6;
+            break;
+        case OVS_TUNNEL_KEY_ATTR_IPV6_DST:
+            RtlCopyMemory(&tunKey->dst.Ipv6.sin6_addr,
+                          NlAttrGetUnspec(a,
+                          sizeof(tunKey->dst.Ipv6.sin6_addr)),
+                          sizeof(tunKey->dst.Ipv6.sin6_addr));
+            tunKey->dst.si_family = AF_INET6;
             break;
         case OVS_TUNNEL_KEY_ATTR_TOS:
             tunKey->tos = NlAttrGetU8(a);
@@ -1871,7 +1914,7 @@ MapTunAttrToFlowPut(PNL_ATTR *keyAttrs,
     memset(&destKey->tunKey, 0, OVS_WIN_TUNNEL_KEY_SIZE);
     if (keyAttrs[OVS_KEY_ATTR_TUNNEL]) {
         /* XXX: This blocks performs same functionality as
-           OvsTunnelAttrToIPv4TunnelKey. Consider refactoring the code.*/
+           OvsTunnelAttrToTunnelKey. Consider refactoring the code.*/
         if (tunAttrs[OVS_TUNNEL_KEY_ATTR_ID]) {
             destKey->tunKey.tunnelId =
                 NlAttrGetU64(tunAttrs[OVS_TUNNEL_KEY_ATTR_ID]);
@@ -1879,13 +1922,33 @@ MapTunAttrToFlowPut(PNL_ATTR *keyAttrs,
         }
 
         if (tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV4_DST]) {
-            destKey->tunKey.dst =
+            destKey->tunKey.dst.si_family = AF_INET;
+            destKey->tunKey.dst.Ipv4.sin_addr.s_addr =
                 NlAttrGetU32(tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV4_DST]);
         }
 
         if (tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV4_SRC]) {
-            destKey->tunKey.src =
+            destKey->tunKey.src.si_family = AF_INET;
+            destKey->tunKey.src.Ipv4.sin_addr.s_addr =
                 NlAttrGetU32(tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV4_SRC]);
+        }
+
+        if (tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV6_DST]) {
+            destKey->tunKey.dst.si_family = AF_INET6;
+            RtlCopyMemory(&destKey->tunKey.dst.Ipv6.sin6_addr,
+                          NlAttrGetUnspec(
+                          tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV6_DST],
+                          sizeof(destKey->tunKey.dst.Ipv6.sin6_addr)),
+                          sizeof(destKey->tunKey.dst.Ipv6.sin6_addr));
+        }
+
+        if (tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV6_SRC]) {
+            destKey->tunKey.src.si_family = AF_INET6;
+            RtlCopyMemory(&destKey->tunKey.src.Ipv6.sin6_addr,
+                NlAttrGetUnspec(
+                    tunAttrs[OVS_TUNNEL_KEY_ATTR_IPV6_SRC],
+                    sizeof(destKey->tunKey.src.Ipv6.sin6_addr)),
+                sizeof(destKey->tunKey.src.Ipv6.sin6_addr));
         }
 
         if (tunAttrs[OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT]) {
@@ -2098,7 +2161,7 @@ OvsGetFlowMetadata(OvsFlowKey *key,
 }
 
 UINT16
-OvsGetFlowL2Offset(const OvsIPv4TunnelKey *tunKey)
+OvsGetFlowL2Offset(const OvsTunnelKey *tunKey)
 {
     if (tunKey != NULL) {
         // Align with int64 boundary
@@ -2307,7 +2370,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
                UINT32 inPort,
                OvsFlowKey *flow,
                POVS_PACKET_HDR_INFO layers,
-               OvsIPv4TunnelKey *tunKey)
+               OvsTunnelKey *tunKey)
 {
     struct Eth_Header *eth;
     UINT8 offset = 0;
@@ -2316,13 +2379,14 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
     layers->value = 0;
 
     if (tunKey) {
-        ASSERT(tunKey->dst != 0);
+        ASSERT(!IsNullIpAddr(&tunKey->dst));
         UINT8 optOffset = TunnelKeyGetOptionsOffset(tunKey);
         RtlMoveMemory(((UINT8 *)&flow->tunKey) + optOffset,
                       ((UINT8 *)tunKey) + optOffset,
                       TunnelKeyGetRealSize(tunKey));
     } else {
-        flow->tunKey.dst = 0;
+        RtlZeroMemory(&flow->tunKey.dst,
+                      sizeof(flow->tunKey.dst));
     }
     flow->l2.offset = OvsGetFlowL2Offset(tunKey);
     flow->l2.inPort = inPort;
@@ -2658,8 +2722,8 @@ OvsLookupFlow(OVS_DATAPATH *datapath,
     UINT16 size = key->l2.keyLen;
     UINT8 *start;
 
-    ASSERT(key->tunKey.dst || offset == sizeof(OvsIPv4TunnelKey));
-    ASSERT(!key->tunKey.dst || offset == OvsGetFlowL2Offset(&key->tunKey));
+    ASSERT(!IsNullIpAddr(&key->tunKey.dst) || offset == sizeof(OvsTunnelKey ));
+    ASSERT(IsNullIpAddr(&key->tunKey.dst) || offset == OvsGetFlowL2Offset(&key->tunKey));
 
     start = (UINT8 *)key + offset;
 
@@ -2722,8 +2786,8 @@ OvsHashFlow(const OvsFlowKey *key)
     UINT16 size = key->l2.keyLen;
     UINT8 *start;
 
-    ASSERT(key->tunKey.dst || offset == sizeof(OvsIPv4TunnelKey));
-    ASSERT(!key->tunKey.dst || offset == OvsGetFlowL2Offset(&key->tunKey));
+    ASSERT(!IsNullIpAddr(&key->tunKey.dst) || offset == sizeof(OvsTunnelKey ));
+    ASSERT(IsNullIpAddr(&key->tunKey.dst) || offset == OvsGetFlowL2Offset(&key->tunKey));
     start = (UINT8 *)key + offset;
     return OvsJhashBytes(start, size, 0);
 }
@@ -3148,6 +3212,8 @@ OvsTunKeyAttrSize(void)
     return NlAttrTotalSize(8)    /* OVS_TUNNEL_KEY_ATTR_ID */
          + NlAttrTotalSize(4)    /* OVS_TUNNEL_KEY_ATTR_IPV4_SRC */
          + NlAttrTotalSize(4)    /* OVS_TUNNEL_KEY_ATTR_IPV4_DST */
+         + NlAttrTotalSize(16)    /* OVS_TUNNEL_KEY_ATTR_IPV6_SRC */
+         + NlAttrTotalSize(16)    /* OVS_TUNNEL_KEY_ATTR_IPV6_DST */
          + NlAttrTotalSize(1)    /* OVS_TUNNEL_KEY_ATTR_TOS */
          + NlAttrTotalSize(1)    /* OVS_TUNNEL_KEY_ATTR_TTL */
          + NlAttrTotalSize(0)    /* OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT */

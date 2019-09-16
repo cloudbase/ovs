@@ -156,6 +156,8 @@ enum ovs_win_netdev_attr {
     OVS_WIN_NETDEV_ATTR_NAME,        /* string name, up to IFNAMSIZ bytes long. */
     OVS_WIN_NETDEV_ATTR_MAC_ADDR,    /* MAC address of the vport. */
     OVS_WIN_NETDEV_ATTR_MTU,         /* MTU of the vport. */
+    OVS_WIN_NETDEV_ATTR_IF_INDEX,    /* Interface index. */
+    OVS_WIN_NETDEV_ATTR_IF_GUID,     /* Interface GUID. */
     OVS_WIN_NETDEV_ATTR_IF_FLAGS,    /* Interface flags o the vport. */
     __OVS_WIN_NETDEV_ATTR_MAX
 };

@@ -185,4 +185,37 @@ return	MmGetSystemAddressForMdlSafe(curMdl,
                                      LowPagePriority | MdlMappingNoExecute);
 }
 
+__inline
+BOOLEAN
+IsNullIpAddr(const SOCKADDR_INET *ipAddr)
+{
+    UCHAR zeros[16] = { 0 };
+
+    if (((ipAddr->si_family == AF_INET || ipAddr->si_family == AF_UNSPEC) &&
+         ipAddr->Ipv4.sin_addr.s_addr == 0) ||
+        (ipAddr->si_family == AF_INET6 &&
+         RtlEqualMemory(&ipAddr->Ipv6.sin6_addr.u.Byte,
+                        &zeros,
+                        sizeof(ipAddr->Ipv6.sin6_addr)))) {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+__inline
+BOOLEAN
+IsEqualIpAddr(const SOCKADDR_INET *src,
+              const SOCKADDR_INET *dst)
+{
+    if ((src->si_family == AF_INET && dst->si_family == AF_INET &&
+         src->Ipv4.sin_addr.s_addr == dst->Ipv4.sin_addr.s_addr) ||
+         (src->si_family == AF_INET6 && dst->si_family == AF_INET6 &&
+         RtlEqualMemory(&src->Ipv6.sin6_addr,
+                        &dst->Ipv6.sin6_addr,
+                        sizeof(src->Ipv6.sin6_addr)))) {
+        return TRUE;
+    }
+    return FALSE;
+}
+
 #endif /* __UTIL_H_ */

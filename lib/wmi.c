@@ -695,6 +695,12 @@ create_wmi_port(char *name) {
         goto error;
     }
 
+    GUID test;
+    if (IIDFromString(wide_name, &test) == S_OK) {
+        retval = true;
+        goto error;
+    }
+
     wcscat_s(internal_port_query, WMI_QUERY_COUNT, wide_name);
 
     wcscat_s(internal_port_query, WMI_QUERY_COUNT, L"\"");

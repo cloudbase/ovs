@@ -92,7 +92,7 @@ VOID OvsCleanupSttTunnel(POVS_VPORT_ENTRY vport);
 
 NDIS_STATUS OvsEncapStt(POVS_VPORT_ENTRY vport,
                         PNET_BUFFER_LIST curNbl,
-                        OvsIPv4TunnelKey *tunKey,
+                        OvsTunnelKey *tunKey,
                         POVS_SWITCH_CONTEXT switchContext,
                         POVS_PACKET_HDR_INFO layers,
                         PNET_BUFFER_LIST *newNbl,
@@ -101,7 +101,7 @@ NDIS_STATUS OvsEncapStt(POVS_VPORT_ENTRY vport,
 
 NDIS_STATUS OvsDecapStt(POVS_SWITCH_CONTEXT switchContext,
                         PNET_BUFFER_LIST curNbl,
-                        OvsIPv4TunnelKey *tunKey,
+                        OvsTunnelKey *tunKey,
                         PNET_BUFFER_LIST *newNbl);
 
 NTSTATUS OvsInitSttDefragmentation();

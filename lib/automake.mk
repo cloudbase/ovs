@@ -341,7 +341,7 @@ lib_libopenvswitch_la_SOURCES += \
 	lib/getrusage-windows.c \
 	lib/latch-windows.c \
 	lib/route-table-stub.c \
-	lib/if-notifier-stub.c \
+	lib/if-notifier-win.c \
 	lib/stream-windows.c \
 	lib/strsep.c
 else
@@ -355,6 +355,7 @@ lib_libopenvswitch_la_SOURCES += \
 endif
 
 EXTRA_DIST += \
+	lib/if-notifier-stub.c \
 	lib/stdio.h.in \
 	lib/string.h.in
 
@@ -446,6 +447,8 @@ lib_libopenvswitch_la_SOURCES += \
 	lib/netlink-socket.c \
 	lib/netlink-socket.h \
 	lib/wmi.c \
+	lib/rtwin.c \
+	lib/rtwin.h \
 	lib/wmi.h
 endif
 
