@@ -17,11 +17,42 @@
 #ifndef WINDEFS_H
 #define WINDEFS_H 1
 
+
+#include <BaseTsd.h>
+
+#ifndef s6_addr
+//
+// IPv6 Internet address (RFC 2553)
+// This is an 'on-wire' format structure.
+//
+typedef struct in6_addr {
+    union {
+        UINT8       Byte[16];
+        UINT16      Word[8];
+	    UINT32          Extra[4];
+    } u;
+} IN6_ADDR, *PIN6_ADDR;
+
+#define in_addr6 in6_addr
+
+//
+// Defines to match RFC 2553.
+//
+#define _S6_un      u
+#define _S6_u8      Byte
+#define s6_addr     _S6_un._S6_u8
+
+//
+// Defines for our implementation.
+//
+#define s6_bytes    u.Byte
+#define s6_words    u.Word
+#endif
+
 #include <Winsock2.h>
 #include <In6addr.h>
 #include <WS2tcpip.h>
 #include <windows.h>
-#include <BaseTsd.h>
 #include <io.h>
 #include <inttypes.h>
 

@@ -160,6 +160,14 @@ OvsGetIcmp(const NET_BUFFER_LIST *packet,
     return OvsGetPacketBytes(packet, sizeof *storage, ofs, storage);
 }
 
+static const ICMP6Hdr *
+OvsGetIcmp6(const NET_BUFFER_LIST *packet,
+            UINT32 ofs,
+            ICMP6Hdr *storage)
+{
+    return OvsGetPacketBytes(packet, sizeof *storage, ofs, storage);
+}
+
 static const MPLSHdr *
 OvsGetMpls(const NET_BUFFER_LIST *packet,
            UINT32 ofs,

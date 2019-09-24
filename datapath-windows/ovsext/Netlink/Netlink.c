@@ -1051,7 +1051,7 @@ NlAttrValidate(const PNL_ATTR nla, const PNL_POLICY policy)
     /* Verify length. */
     len = NlAttrGetSize(nla);
     if (len < minLen || len > maxLen) {
-        OVS_LOG_WARN("Attribute: %p, len: %d, not in valid range, "
+        OVS_LOG_ERROR("Attribute: %p, len: %d, not in valid range, "
                      "min: %d, max: %d", nla, len, minLen, maxLen);
         goto done;
     }
@@ -1059,12 +1059,12 @@ NlAttrValidate(const PNL_ATTR nla, const PNL_POLICY policy)
     /* Strings must be null terminated and must not have embedded nulls. */
     if (policy->type == NL_A_STRING) {
         if (((PCHAR) nla)[nla->nlaLen - 1]) {
-            OVS_LOG_WARN("Attributes %p lacks null at the end", nla);
+            OVS_LOG_ERROR("Attributes %p lacks null at the end", nla);
             goto done;
         }
 
         if (memchr(nla + 1, '\0', len - 1) != NULL) {
-            OVS_LOG_WARN("Attributes %p has bad length", nla);
+            OVS_LOG_ERROR("Attributes %p has bad length", nla);
             goto done;
         }
     }
@@ -1183,7 +1183,7 @@ NlAttrParse(const PNL_MSG_HDR nlMsg, UINT32 attrOffset,
     RtlZeroMemory(attrs, numAttrs * sizeof *attrs);
 
     if ((NlMsgSize(nlMsg) < attrOffset)) {
-        OVS_LOG_WARN("No attributes in nlMsg: %p at offset: %d",
+        OVS_LOG_ERROR("No attributes in nlMsg: %p at offset: %d",
                      nlMsg, attrOffset);
         goto done;
     }
@@ -1196,11 +1196,13 @@ NlAttrParse(const PNL_MSG_HDR nlMsg, UINT32 attrOffset,
             /* Typecasting to keep the compiler happy */
             const PNL_POLICY e = (const PNL_POLICY)(&policy[type]);
             if (!NlAttrValidate(nla, e)) {
+                OVS_LOG_ERROR("Could not validate type: %u",
+                     type);
                 goto done;
             }
 
             if (attrs[type]) {
-                OVS_LOG_WARN("Duplicate attribute in nlMsg: %p, "
+                OVS_LOG_ERROR("Duplicate attribute in nlMsg: %p, "
                              "type: %u", nlMsg, type);
             }
 

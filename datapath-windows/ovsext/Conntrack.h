@@ -182,6 +182,18 @@ OvsGetTcpHeader(PNET_BUFFER_LIST nbl,
         return NULL;
     }
 
+    if (layers->isIPv6) {
+        IPv6Hdr *ip6;
+        ip6 = (IPv6Hdr *)((PCHAR)ipHdr + layers->l3Offset);
+        tcp = (TCPHdr *)((PCHAR)ipHdr + layers->l4Offset);
+        if (tcp->doff * 4 >= sizeof *tcp) {
+            *tcpPayloadLen = ntohs(ip6->payload_len) - TCP_HDR_LEN(tcp);
+            NdisMoveMemory(dest, tcp, sizeof(TCPHdr));
+            return storage;
+        }
+        return NULL;
+    }
+
     ipHdr = (IPHdr *)((PCHAR)ipHdr + layers->l3Offset);
     tcp = (TCPHdr *)((PCHAR)ipHdr + ipHdr->ihl * 4);
     if (tcp->doff * 4 >= sizeof *tcp) {
@@ -201,6 +213,7 @@ NDIS_STATUS OvsExecuteConntrackAction(OvsForwardingContext *fwdCtx,
                                       const PNL_ATTR a);
 BOOLEAN OvsConntrackValidateTcpPacket(const TCPHdr *tcp);
 BOOLEAN OvsConntrackValidateIcmpPacket(const ICMPHdr *icmp);
+BOOLEAN OvsConntrackValidateIcmp6Packet(const ICMP6Hdr *icmp);
 OVS_CT_ENTRY * OvsConntrackCreateTcpEntry(const TCPHdr *tcp,
                                           UINT64 now,
                                           UINT32 tcpPayloadLen);

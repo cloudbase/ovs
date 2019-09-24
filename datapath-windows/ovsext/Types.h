@@ -19,15 +19,15 @@
 
 /* Defines the userspace specific data types
  * for files included from user space. */
-typedef unsigned long long uint64, uint64_t, ovs_be64, u64;
-typedef long long int64, int64_t;
-typedef unsigned int uint32, uint32_t, ovs_be32, u32;
-typedef unsigned short uint16, uint16_t, ovs_be16, u16;
-typedef unsigned char uint8, uint8_t, u8;
-typedef uint64 __u64, __be64;
-typedef uint32 __u32, __be32;
-typedef uint16 __u16, __be16;
-typedef uint8 __u8;
+typedef UINT64 uint64, uint64_t, ovs_be64, u64;
+typedef INT64 int64, int64_t;
+typedef UINT32 uint32, uint32_t, ovs_be32, u32;
+typedef UINT16 uint16, uint16_t, ovs_be16, u16;
+typedef UINT8 uint8, uint8_t, u8;
+typedef UINT64 __u64, __be64;
+typedef UINT32 __u32, __be32;
+typedef UINT16 __u16, __be16;
+typedef UINT8 __u8;
 typedef union ovs_u128 {
     uint32_t u32[4];
     struct {

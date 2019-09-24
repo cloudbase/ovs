@@ -322,6 +322,22 @@ typedef struct ICMPHdr {
     } fields;
 } ICMPHdr;
 
+#define ICMP6_HEADER_LEN 4
+typedef struct ICMP6Hdr {
+    uint8_t type;
+    uint8_t code;
+    ovs_be16 checksum;
+    union {
+        __be32			un_data32[1];
+        __be16			un_data16[2];
+        __u8			un_data8[4];
+        struct icmpv6_echo {
+            __be16		identifier;
+            __be16		sequence;
+        } u_echo;
+    } fields;
+}ICMP6Hdr;
+
 typedef struct ICMPEcho {
    UINT16       id;
    UINT16       seq;
