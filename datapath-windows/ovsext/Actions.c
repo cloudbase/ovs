@@ -198,7 +198,6 @@ OvsDetectTunnelRxPkt(OvsForwardingContext *ovsFwdCtx,
             nwProto = flowKey->ipKey.nwProto;
             dstPort = htons(flowKey->ipKey.l4.tpDst);
         } else {
-            ASSERT(flowKey->l2.dlType == ETH_TYPE_IPV6_NBO);
             nwProto = flowKey->ipv6Key.nwProto;
             dstPort = htons(flowKey->ipv6Key.l4.tpDst);
         }
