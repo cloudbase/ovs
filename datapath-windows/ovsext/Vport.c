@@ -678,6 +678,7 @@ HvDeleteNic(POVS_SWITCH_CONTEXT switchContext,
 {
     LOCK_STATE_EX lockState;
     POVS_VPORT_ENTRY vport;
+    OVS_VPORT_EVENT_ENTRY event;
 
     VPORT_NIC_ENTER(nicParam);
     /* Wait for lists to be initialized. */
@@ -701,6 +702,23 @@ HvDeleteNic(POVS_SWITCH_CONTEXT switchContext,
 
     vport->nicState = NdisSwitchNicStateUnknown;
     vport->ovsState = OVS_STATE_PORT_CREATED;
+    event.portNo = vport->portNo;
+    event.ovsType = vport->ovsType;
+    event.upcallPid = vport->upcallPid;
+    RtlCopyMemory(&event.ovsName, &vport->ovsName, sizeof event.ovsName);
+    event.type = OVS_EVENT_LINK_DOWN;
+
+    /*
+     * Delete the port from the hash tables accessible to userspace. After this
+     * point, userspace should not be able to access this port.
+     */
+    OvsPostVportEvent(&event);
+    /*
+     * External ports do not respect Add/Del port.
+     */
+    if (OvsIsRealExternalNIC(vport->nicType, vport->nicIndex)) {
+        OvsRemoveAndDeleteVport(NULL, switchContext, vport, TRUE, TRUE);
+    }
     NdisReleaseRWLock(switchContext->dispatchLock, &lockState);
 
 done:
@@ -1309,6 +1327,11 @@ InitOvsVportCommon(POVS_SWITCH_CONTEXT switchContext,
      * NOTE: OvsJhashWords has portNo as "1" word. This is ok, because the
      * portNo is stored in 2 bytes only (max port number = MAXUINT16).
      */
+    if (vport->portType == NdisSwitchPortTypeExternal &&
+        vport->nicIndex == 0) {
+        ASSERT(0);
+        return NDIS_STATUS_INVALID_PARAMETER;
+    }
     hash = OvsJhashWords(&vport->portNo, 1, OVS_HASH_BASIS);
     InsertHeadList(&gOvsSwitchContext->portNoHashArray[hash & OVS_VPORT_MASK],
                    &vport->portNoLink);
@@ -1376,10 +1399,7 @@ OvsRemoveAndDeleteVport(PVOID usrParamsContext,
         break;
     case OVS_VPORT_TYPE_NETDEV:
         if (vport->isExternal) {
-            if (vport->nicIndex == 0) {
-                /* Such a vport is not part of any of the hash tables, since it
-                 * is not exposed to userspace. See Vport.h for explanation. */
-                ASSERT(hvDelete == TRUE);
+            if (hvDelete && vport->nicIndex == 0) {
                 ASSERT(switchContext->numPhysicalNics == 0);
                 switchContext->virtualExternalPortId = 0;
                 switchContext->virtualExternalVport = NULL;

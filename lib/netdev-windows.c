@@ -127,6 +127,9 @@ is_netdev_windows_class(const struct netdev_class *netdev_class)
 static struct netdev_windows *
 netdev_windows_cast(const struct netdev *netdev_)
 {
+    if (!is_netdev_windows_class(netdev_get_class(netdev_))) {
+        VLOG_ERR("netdev_windows_cast is false");
+    }
     ovs_assert(is_netdev_windows_class(netdev_get_class(netdev_)));
     return CONTAINER_OF(netdev_, struct netdev_windows, up);
 }
@@ -209,7 +212,8 @@ netdev_windows_system_construct(struct netdev *netdev_)
     netdev->cache_valid |= VALID_IFFLAG;
 
     memcpy(&netdev->netcfginstanceid, &info.netcfginstanceid, sizeof(GUID));
-    if (!!memcmp(&netdev->netcfginstanceid, &zero_guid, sizeof(GUID))) {
+    if (!!memcmp(&netdev->netcfginstanceid, &zero_guid, sizeof(GUID))
+        && info.registry_location) {
         netdev->registry_location = xstrdup(info.registry_location);
         netdev->pnp_id = xstrdup(info.pnp_id);
         netdev->cache_valid |= VALID_DRVINFO;
@@ -770,7 +774,8 @@ netdev_windows_netdev_from_ofpbuf2(struct netdev_windows_netdev_info *info,
         netdev->cache_valid |= VALID_IFFLAG;
 
         memcpy(&netdev->netcfginstanceid, &info1.netcfginstanceid, sizeof(GUID));
-        if (!!memcmp(&netdev->netcfginstanceid, &zero_guid, sizeof(GUID))) {
+        if (!!memcmp(&netdev->netcfginstanceid, &zero_guid, sizeof(GUID))
+            && info1.registry_location) {
             netdev->registry_location = xstrdup(info1.registry_location);
             netdev->pnp_id = xstrdup(info1.pnp_id);
             netdev->cache_valid |= VALID_DRVINFO;
