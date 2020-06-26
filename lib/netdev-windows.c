@@ -453,6 +453,14 @@ netdev_windows_get_mtu(const struct netdev *netdev_, int *mtup)
 static int
 netdev_windows_set_mtu(struct netdev *netdev_, int mtu)
 {
+    // Revisit the functionality once we start testing on containers
+    //
+#if 1
+
+    return 0;
+
+#else
+
     struct netdev_windows *netdev = netdev_windows_cast(netdev_);
     DWORD ret_val = 0;
 
@@ -499,6 +507,7 @@ netdev_windows_set_mtu(struct netdev *netdev_, int mtu)
 
 exit:
     return ret_val;
+#endif
 }
 
 /* This functionality is not really required by the datapath.
@@ -507,6 +516,10 @@ static int
 netdev_windows_set_etheraddr(const struct netdev *netdev_,
                              const struct eth_addr mac)
 {
+    // Revisit the functionality once we start testing on containers
+#if 1
+    return 0;
+#else
     struct netdev_windows *netdev = netdev_windows_cast(netdev_);
 
     if (!eth_addr_compare_3way(netdev->mac, mac)) {
@@ -562,6 +575,7 @@ netdev_windows_set_etheraddr(const struct netdev *netdev_,
     }
 
     return 0;
+#endif
 }
 
 /* This functionality is not really required by the datapath.
@@ -885,6 +899,10 @@ static int
 netdev_windows_set_in4(struct netdev *netdev_, struct in_addr address,
     struct in_addr netmask)
 {
+    // Revisit the functionality once we start testing on containers
+#if 1
+    return 0;
+#else
     struct netdev_windows *netdev = netdev_windows_cast(netdev_);
     int error;
     DWORD lastError = 0;
@@ -907,6 +925,7 @@ netdev_windows_set_in4(struct netdev *netdev_, struct in_addr address,
     }
 
     return error;
+#endif
 }
 
 
