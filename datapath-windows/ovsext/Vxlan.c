@@ -444,10 +444,10 @@ OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
 
     ethHdr = (EthHdr *)bufferStart;
 
-    if (ethHdr->Type == ETH_TYPE_IPV4_NBO) {
+    if (layers.isIPv4) {
         IPHdr *ipHdr;
         /* XXX: Handle IP options. */
-        ipHdr = (IPHdr *)((PCHAR)ethHdr + sizeof(*ethHdr));
+        ipHdr = (IPHdr *)((PCHAR)ethHdr + layers.l3Offset);
         tunKey->src.Ipv4.sin_addr.s_addr = ipHdr->saddr;
         tunKey->src.si_family = AF_INET;
         tunKey->dst.Ipv4.sin_addr.s_addr = ipHdr->daddr;
@@ -455,10 +455,10 @@ OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
         tunKey->tos = ipHdr->tos;
         tunKey->ttl = ipHdr->ttl;
         tunKey->pad = 0;
-    } else {
+    } else if (layers.isIPv6) {
         IPv6Hdr *ipv6Hdr;
-        ASSERT(ethHdr->Type == ETH_TYPE_IPV6_NBO);
-        ipv6Hdr = (IPv6Hdr *)((PCHAR)ethHdr + sizeof(*ethHdr));
+        ASSERT(layers.isIPv6);
+        ipv6Hdr = (IPv6Hdr *)((PCHAR)ethHdr + layers.l3Offset);
         RtlCopyMemory(&tunKey->src.Ipv6.sin6_addr, &ipv6Hdr->saddr, sizeof(ipv6Hdr->saddr));
         tunKey->src.si_family = AF_INET6;
         RtlCopyMemory(&tunKey->dst.Ipv6.sin6_addr, &ipv6Hdr->daddr, sizeof(ipv6Hdr->saddr));
@@ -467,6 +467,10 @@ OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
                       ((ipv6Hdr->flow_lbl[0] & 0xF0) >> 4);
         tunKey->ttl = ipv6Hdr->hop_limit;
         tunKey->pad = 0;
+    } else {
+        ASSERT(0);
+        status = NDIS_STATUS_RESOURCES;
+        goto dropNbl;
     }
     udpHdr = (UDPHdr *)(bufferStart + layers.l4Offset);
 

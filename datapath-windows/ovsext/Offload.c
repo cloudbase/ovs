@@ -626,8 +626,8 @@ OvsCalculateUDPChecksum(PNET_BUFFER_LIST curNbl,
 
         checkSum = udpHdr->check;
 
-        switch (ethHdr->Type) {
-        case ETH_TYPE_IPV4_NBO: {
+        switch (layers->isIPv4) {
+        case 1: {
             IPHdr *ipHdr = (IPHdr *)((PCHAR)ethHdr + layers->l3Offset);
 
             udpHdr->check = 0;
@@ -640,7 +640,7 @@ OvsCalculateUDPChecksum(PNET_BUFFER_LIST curNbl,
                                     layers->l4Offset);
             break;
         }
-        case ETH_TYPE_IPV6_NBO: {
+        case 0: {
             IPv6Hdr *ipv6Hdr = (IPv6Hdr *)((PCHAR)ethHdr + layers->l3Offset);
 
             udpHdr->check = 0;
