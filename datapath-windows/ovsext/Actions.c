@@ -684,15 +684,15 @@ OvsTunnelPortTx(OvsForwardingContext *ovsFwdCtx)
 
     if (status == NDIS_STATUS_SUCCESS && switchFwdInfo.vport != NULL) {
         ASSERT(newNbl);
-        ovsFwdCtx->srcVportNo = switchFwdInfo.vport->portNo;
-        ovsFwdCtx->fwdDetail->SourcePortId = switchFwdInfo.vport->portId;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = switchFwdInfo.vport->nicIndex;
 
         OvsCompleteNBLForwardingCtx(ovsFwdCtx,
                                     L"Complete after cloning NBL for encapsulation");
-
+        status = OvsInitForwardingCtx(ovsFwdCtx, ovsFwdCtx->switchContext,
+                                      newNbl, switchFwdInfo.vport->portNo, 0,
+                                      NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
+                                      ovsFwdCtx->completionList,
+                                      &ovsFwdCtx->layers, FALSE);
         ovsFwdCtx->curNbl = newNbl;
-
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
         ASSERT(ovsFwdCtx->curNbl == NULL);
     } else {
@@ -782,13 +782,6 @@ OvsTunnelPortRx(OvsForwardingContext *ovsFwdCtx)
                              NET_BUFFER_LIST_SWITCH_FORWARDING_DETAIL(newNbl),
                              ovsFwdCtx->completionList,
                              &ovsFwdCtx->layers, FALSE);
-
-        /*
-         * Set the NBL's SourcePortId and SourceNicIndex to default values to
-         * keep NDIS happy when we forward the packet.
-         */
-        ovsFwdCtx->fwdDetail->SourcePortId = NDIS_SWITCH_DEFAULT_PORT_ID;
-        ovsFwdCtx->fwdDetail->SourceNicIndex = 0;
 
         status = OvsDoFlowLookupOutput(ovsFwdCtx);
     }
