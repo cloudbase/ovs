@@ -1604,6 +1604,16 @@ copymultiple_error:
 
 }
 
+BOOLEAN CheckIsLessContextSize(PNET_BUFFER_LIST nbl)
+{
+    return (NET_BUFFER_LIST_CONTEXT_DATA_SIZE(nbl) < OVS_DEFAULT_NBL_CONTEXT_SIZE);
+}
+
+BOOLEAN CheckIsOvsContext(PNET_BUFFER_LIST nbl)
+{
+    POVS_BUFFER_CONTEXT ctx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(nbl);
+    return ctx->magic == OVS_CTX_MAGIC;
+}
 
 /*
  * --------------------------------------------------------------------------
@@ -1637,11 +1647,16 @@ OvsCompleteNBL(PVOID switch_ctx,
 
     ASSERT(ctx && ctx->magic == OVS_CTX_MAGIC);
 
-    OVS_LOG_TRACE("Enter: nbl: %p, ctx: %p, refCount: %d, updateRef:%d",
-                 nbl, ctx, ctx->refCount, updateRef);
+    if (CheckIsLessContextSize(nbl)) {
+        OVS_LOG_ERROR("Not an OVS CONTEXT");
+        return NULL;
+    }
 
-    if (updateRef) {
-        value = InterlockedDecrement((LONG volatile *)&ctx->refCount);
+    OVS_LOG_TRACE("Enter: nbl: %p, ctx: %p, refCount: %d, updateRef:%d",
+                  nbl, ctx, ctx->refCount, updateRef);
+
+    if (updateRef && CheckIsOvsContext(nbl)) {
+        value = InterlockedDecrement((LONG volatile*)&ctx->refCount);
         if (value != 0) {
             return NULL;
         }
@@ -1649,7 +1664,7 @@ OvsCompleteNBL(PVOID switch_ctx,
         /*
          * This is a special case, the refCount must be zero
          */
-        ASSERT(ctx->refCount == 0);
+        ASSERT(CheckIsOvsContext(nbl) && ctx->refCount == 0);
     }
 
     nb = NET_BUFFER_LIST_FIRST_NB(nbl);
@@ -1749,14 +1764,16 @@ OvsCompleteNBL(PVOID switch_ctx,
     if (parent != NULL) {
         ctx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(parent);
         ASSERT(ctx && ctx->magic == OVS_CTX_MAGIC);
-        UINT16 pendingSend = 1, exchange = 0;
-        value = InterlockedDecrement((LONG volatile *)&ctx->refCount);
-        InterlockedCompareExchange16((SHORT volatile *)&pendingSend, exchange, (SHORT)ctx->pendingSend);
-        if (value == 1 && pendingSend == exchange) {
-            InterlockedExchange16((SHORT volatile *)&ctx->pendingSend, 0);
-            OvsSendNBLIngress(context, parent, ctx->sendFlags);
-        } else if (value == 0){
-            return OvsCompleteNBL(context, parent, FALSE);
+        if (!CheckIsLessContextSize(parent) && CheckIsOvsContext(parent)) {
+            UINT16 pendingSend = 1, exchange = 0;
+            value = InterlockedDecrement((LONG volatile *)&ctx->refCount);
+            InterlockedCompareExchange16((SHORT volatile *)&pendingSend, exchange, (SHORT)ctx->pendingSend);
+            if (value == 1 && pendingSend == exchange) {
+                InterlockedExchange16((SHORT volatile *)&ctx->pendingSend, 0);
+                OvsSendNBLIngress(context, parent, ctx->sendFlags);
+            } else if (value == 0){
+                return OvsCompleteNBL(context, parent, FALSE);
+            }
         }
     }
     return NULL;

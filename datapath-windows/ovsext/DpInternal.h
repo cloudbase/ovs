@@ -136,7 +136,7 @@ typedef struct L2Key {
 } L2Key; /* Size of 32 byte. */
 
 /* Number of packet attributes required to store OVS tunnel key. */
-#define NUM_PKT_ATTR_REQUIRED 35
+#define NUM_PKT_ATTR_REQUIRED 41
 #define TUN_OPT_MAX_LEN 255
 
 typedef union OvsTunnelKey {
@@ -165,7 +165,7 @@ typedef union OvsTunnelKey {
     uint64_t attr[NUM_PKT_ATTR_REQUIRED];
 } OvsTunnelKey ; /* Size of 280 byte. */
 
-static __inline uint8_t
+static __inline uint16_t
 TunnelKeyGetOptionsOffset(const OvsTunnelKey *key)
 {
     return TUN_OPT_MAX_LEN - key->tunOptLen;
