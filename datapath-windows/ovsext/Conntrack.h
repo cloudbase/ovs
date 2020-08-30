@@ -178,7 +178,7 @@ OvsGetTcpHeader(PNET_BUFFER_LIST nbl,
     ipHdr = NdisGetDataBuffer(NET_BUFFER_LIST_FIRST_NB(nbl),
                               layers->l4Offset + sizeof(TCPHdr),
                               NULL, 1 /*no align*/, 0);
-    if (ipHdr == NULL) {
+    if (ipHdr == NULL || !layers->isTcp) {
         return NULL;
     }
 
