@@ -478,7 +478,7 @@ static __inline VOID
 OvsClearTunTxCtx(OvsForwardingContext *ovsFwdCtx)
 {
     ovsFwdCtx->tunnelTxNic = NULL;
-    RtlZeroMemory(&ovsFwdCtx->tunKey.dst, sizeof(ovsFwdCtx->tunKey.dst));
+    RtlZeroMemory(&ovsFwdCtx->tunKey, sizeof(ovsFwdCtx->tunKey));
 }
 
 
@@ -492,7 +492,7 @@ static __inline VOID
 OvsClearTunRxCtx(OvsForwardingContext *ovsFwdCtx)
 {
     ovsFwdCtx->tunnelRxNic = NULL;
-    RtlZeroMemory(&ovsFwdCtx->tunKey.dst, sizeof(ovsFwdCtx->tunKey.dst));
+    RtlZeroMemory(&ovsFwdCtx->tunKey, sizeof(ovsFwdCtx->tunKey));
 }
 
 
@@ -1700,14 +1700,16 @@ OvsExecuteSetAction(OvsForwardingContext *ovsFwdCtx,
 
     case OVS_KEY_ATTR_TUNNEL:
     {
-        OvsTunnelKey tunKey;
-        tunKey.flow_hash = (uint16)(hash ? *hash : OvsHashFlow(key));
+        OvsTunnelKey tunKey = { 0 };
         tunKey.dst_port = key->ipKey.l4.tpDst;
         NTSTATUS convertStatus = OvsTunnelAttrToTunnelKey((PNL_ATTR)a, &tunKey);
         status = SUCCEEDED(convertStatus) ? NDIS_STATUS_SUCCESS : NDIS_STATUS_FAILURE;
         ASSERT(status == NDIS_STATUS_SUCCESS);
         RtlCopyMemory(&ovsFwdCtx->tunKey, &tunKey, sizeof ovsFwdCtx->tunKey);
         RtlCopyMemory(&key->tunKey, &tunKey, sizeof key->tunKey);
+        OvsExtractFlow(ovsFwdCtx->curNbl, ovsFwdCtx->srcVportNo, key, &ovsFwdCtx->layers,
+                       IsNullIpAddr(&ovsFwdCtx->tunKey.dst) ? NULL : &ovsFwdCtx->tunKey);
+        tunKey.flow_hash = (uint16)(hash ? *hash : OvsHashFlow(key));
         break;
     }
 
@@ -1791,7 +1793,6 @@ OvsExecuteHash(OvsFlowKey *key,
 {
     struct ovs_action_hash *hash_act = NlAttrData(attr);
     UINT32 hash = 0;
-
     hash = (UINT32)OvsHashFlow(key);
     hash = OvsJhashWords(&hash, 1, hash_act->hash_basis);
     if (!hash)
@@ -2135,6 +2136,9 @@ OvsDoExecuteActions(POVS_SWITCH_CONTEXT switchContext,
             }
 
             PNET_BUFFER_LIST oldNbl = ovsFwdCtx.curNbl;
+            OvsExtractFlow(ovsFwdCtx.curNbl, ovsFwdCtx.srcVportNo,
+                           key, &ovsFwdCtx.layers,
+                           IsNullIpAddr(&ovsFwdCtx.tunKey.dst) ? NULL : &ovsFwdCtx.tunKey);
             status = OvsExecuteConntrackAction(&ovsFwdCtx, key,
                                                (const PNL_ATTR)a);
             if (status != NDIS_STATUS_SUCCESS) {

@@ -2418,7 +2418,7 @@ OvsExtractFlow(const NET_BUFFER_LIST *packet,
 
     if (tunKey) {
         ASSERT(!IsNullIpAddr(&tunKey->dst));
-        UINT8 optOffset = TunnelKeyGetOptionsOffset(tunKey);
+        UINT16 optOffset = TunnelKeyGetOptionsOffset(tunKey);
         RtlMoveMemory(((UINT8 *)&flow->tunKey) + optOffset,
                       ((UINT8 *)tunKey) + optOffset,
                       TunnelKeyGetRealSize(tunKey));
@@ -2762,7 +2762,7 @@ OvsLookupFlow(OVS_DATAPATH *datapath,
     UINT16 size = key->l2.keyLen;
     UINT8 *start;
 
-    ASSERT(!IsNullIpAddr(&key->tunKey.dst) || offset == sizeof(OvsTunnelKey ));
+    ASSERT(!IsNullIpAddr(&key->tunKey.dst) || offset == sizeof(OvsTunnelKey));
     ASSERT(IsNullIpAddr(&key->tunKey.dst) || offset == OvsGetFlowL2Offset(&key->tunKey));
 
     start = (UINT8 *)key + offset;
