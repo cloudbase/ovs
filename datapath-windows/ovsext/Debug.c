@@ -43,6 +43,12 @@ OvsLog(UINT32 level,
        CHAR *format,
        ...)
 {
+    UNREFERENCED_PARAMETER(level);
+    UNREFERENCED_PARAMETER(flag);
+    UNREFERENCED_PARAMETER(funcName);
+    UNREFERENCED_PARAMETER(line);
+    UNREFERENCED_PARAMETER(format);
+#if DBG
     va_list args;
     CHAR buf[OVS_LOG_BUFFER_SIZE];
 
@@ -56,4 +62,5 @@ OvsLog(UINT32 level,
     va_end(args);
 
     DbgPrintEx(DPFLTR_IHVNETWORK_ID, level, "%s:%lu %s\n", funcName, line, buf);
+#endif
 }
