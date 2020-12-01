@@ -2823,7 +2823,7 @@ OvsLookupFlow(OVS_DATAPATH *datapath,
     while (link != head) {
         OvsFlow *flow = CONTAINING_RECORD(link, OvsFlow, ListEntry);
 
-        if (FlowEqual(flow, key, start, *hash, offset, size)) {
+        if (flow && FlowEqual(flow, key, start, *hash, offset, size)) {
             return flow;
         }
         link = link->Flink;
