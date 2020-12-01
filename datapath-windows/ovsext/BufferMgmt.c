@@ -730,6 +730,10 @@ OvsPartialCopyNBL(PVOID ovsContext,
                   UINT32 headRoom,
                   BOOLEAN copyNblInfo)
 {
+#if USE_FULL_COPY_ALWAYS
+    UNREFERENCED_PARAMETER(copySize);
+    return OvsFullCopyNBL(ovsContext,nbl, headRoom, copyNblInfo);
+#else
     PNET_BUFFER_LIST newNbl;
     POVS_SWITCH_CONTEXT context = (POVS_SWITCH_CONTEXT)ovsContext;
     NDIS_STATUS status;
@@ -842,6 +846,7 @@ nbl_context_error:
 retreat_error:
     NdisFreeCloneNetBufferList(newNbl, 0);
     return NULL;
+#endif
 }
 
 /*
@@ -1765,13 +1770,8 @@ OvsCompleteNBL(PVOID switch_ctx,
         ctx = (POVS_BUFFER_CONTEXT)NET_BUFFER_LIST_CONTEXT_DATA_START(parent);
         ASSERT(ctx && ctx->magic == OVS_CTX_MAGIC);
         if (!CheckIsLessContextSize(parent) && CheckIsOvsContext(parent)) {
-            UINT16 pendingSend = 1, exchange = 0;
             value = InterlockedDecrement((LONG volatile *)&ctx->refCount);
-            InterlockedCompareExchange16((SHORT volatile *)&pendingSend, exchange, (SHORT)ctx->pendingSend);
-            if (value == 1 && pendingSend == exchange) {
-                InterlockedExchange16((SHORT volatile *)&ctx->pendingSend, 0);
-                OvsSendNBLIngress(context, parent, ctx->sendFlags);
-            } else if (value == 0){
+            if (value == 0){
                 return OvsCompleteNBL(context, parent, FALSE);
             }
         }

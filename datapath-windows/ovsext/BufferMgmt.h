@@ -25,6 +25,7 @@
 #define OVS_DEFAULT_DATA_SIZE           256
 #define OVS_DEFAULT_HEADROOM_SIZE       128
 #define OVS_FIX_NBL_DATA_SIZE    (OVS_DEFAULT_DATA_SIZE + OVS_DEFAULT_HEADROOM_SIZE)
+#define USE_FULL_COPY_ALWAYS            1
 
 /* Default we copy 18 bytes, to make sure ethernet header and vlan is in
  * continuous buffer */
