@@ -719,6 +719,10 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
 
   OVS_GREP_IFELSE([$KSRC/include/linux/random.h], [prandom_u32])
   OVS_GREP_IFELSE([$KSRC/include/linux/random.h], [prandom_u32_max])
+  OVS_GREP_IFELSE([$KSRC/include/linux/prandom.h],
+                  [prandom_u32[[\(]]],
+                  [OVS_DEFINE([HAVE_PRANDOM_U32])])
+  OVS_GREP_IFELSE([$KSRC/include/linux/prandom.h], [prandom_u32_max])
 
   OVS_GREP_IFELSE([$KSRC/include/net/rtnetlink.h], [get_link_net])
   OVS_GREP_IFELSE([$KSRC/include/net/rtnetlink.h], [name_assign_type])
@@ -871,8 +875,6 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
 
   OVS_GREP_IFELSE([$KSRC/include/net/sock.h], [sk_no_check_tx])
   OVS_GREP_IFELSE([$KSRC/include/linux/udp.h], [no_check6_tx])
-  OVS_GREP_IFELSE([$KSRC/include/linux/utsrelease.h], [el6],
-                  [OVS_DEFINE([HAVE_RHEL6_PER_CPU])])
   OVS_FIND_PARAM_IFELSE([$KSRC/include/net/protocol.h],
                         [udp_add_offload], [net],
                         [OVS_DEFINE([HAVE_UDP_ADD_OFFLOAD_TAKES_NET])])

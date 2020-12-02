@@ -1547,7 +1547,6 @@ ovsdb_idl_db_set_condition(struct ovsdb_idl_db *db,
 {
     struct ovsdb_idl_condition *table_cond;
     struct ovsdb_idl_table *table = ovsdb_idl_db_table_from_class(db, tc);
-    unsigned int seqno = db->cond_seqno;
 
     /* Compare the new condition to the last known condition which can be
      * either "new" (not sent yet), "requested" or "acked", in this order.
@@ -1565,10 +1564,14 @@ ovsdb_idl_db_set_condition(struct ovsdb_idl_db *db,
         ovsdb_idl_condition_clone(&table->new_cond, condition);
         db->cond_changed = true;
         poll_immediate_wake();
-        return seqno + 1;
+        return db->cond_seqno + 1;
+    } else if (table_cond != table->ack_cond) {
+        /* 'condition' was already set but has not been "acked" yet.  The IDL
+         * will be up to date when db->cond_seqno gets incremented. */
+        return db->cond_seqno + 1;
     }
 
-    return seqno;
+    return db->cond_seqno;
 }
 
 /* Sets the replication condition for 'tc' in 'idl' to 'condition' and
@@ -1872,29 +1875,37 @@ ovsdb_idl_track_is_set(struct ovsdb_idl_table *table)
 }
 
 /* Returns the first tracked row in table with class 'table_class'
- * for the specified 'idl'. Returns NULL if there are no tracked rows */
+ * for the specified 'idl'. Returns NULL if there are no tracked rows.
+ * Pure orphan rows, i.e. rows that never had any datum, are skipped. */
 const struct ovsdb_idl_row *
 ovsdb_idl_track_get_first(const struct ovsdb_idl *idl,
                           const struct ovsdb_idl_table_class *table_class)
 {
     struct ovsdb_idl_table *table
         = ovsdb_idl_db_table_from_class(&idl->data, table_class);
+    struct ovsdb_idl_row *row;
 
-    if (!ovs_list_is_empty(&table->track_list)) {
-        return CONTAINER_OF(ovs_list_front(&table->track_list), struct ovsdb_idl_row, track_node);
+    LIST_FOR_EACH (row, track_node, &table->track_list) {
+        if (!ovsdb_idl_row_is_orphan(row) || row->tracked_old_datum) {
+            return row;
+        }
     }
     return NULL;
 }
 
 /* Returns the next tracked row in table after the specified 'row'
- * (in no particular order). Returns NULL if there are no tracked rows */
+ * (in no particular order). Returns NULL if there are no tracked rows.
+ * Pure orphan rows, i.e. rows that never had any datum, are skipped.*/
 const struct ovsdb_idl_row *
 ovsdb_idl_track_get_next(const struct ovsdb_idl_row *row)
 {
-    if (row->track_node.next != &row->table->track_list) {
-        return CONTAINER_OF(row->track_node.next, struct ovsdb_idl_row, track_node);
-    }
+    struct ovsdb_idl_table *table = row->table;
 
+    LIST_FOR_EACH_CONTINUE (row, track_node, &table->track_list) {
+        if (!ovsdb_idl_row_is_orphan(row) || row->tracked_old_datum) {
+            return row;
+        }
+    }
     return NULL;
 }
 
@@ -1942,6 +1953,11 @@ ovsdb_idl_db_track_clear(struct ovsdb_idl_db *db)
                     free(row->updated);
                     row->updated = NULL;
                 }
+
+                row->change_seqno[OVSDB_IDL_CHANGE_INSERT] =
+                    row->change_seqno[OVSDB_IDL_CHANGE_MODIFY] =
+                    row->change_seqno[OVSDB_IDL_CHANGE_DELETE] = 0;
+
                 ovs_list_remove(&row->track_node);
                 ovs_list_init(&row->track_node);
                 if (ovsdb_idl_row_is_orphan(row) && row->tracked_old_datum) {
@@ -2623,22 +2639,25 @@ ovsdb_idl_process_update2(struct ovsdb_idl_table *table,
     return true;
 }
 
-/* Recursively add rows to tracked change lists for current row
- * and the rows that reference this row. */
+/* Recursively add rows to tracked change lists for all rows that reference
+   'row'. */
 static void
 add_tracked_change_for_references(struct ovsdb_idl_row *row)
 {
-    if (ovs_list_is_empty(&row->track_node) &&
-            ovsdb_idl_track_is_set(row->table)) {
-        ovs_list_push_back(&row->table->track_list,
-                           &row->track_node);
-        row->change_seqno[OVSDB_IDL_CHANGE_MODIFY]
-            = row->table->change_seqno[OVSDB_IDL_CHANGE_MODIFY]
-            = row->table->db->change_seqno + 1;
+    const struct ovsdb_idl_arc *arc;
+    LIST_FOR_EACH (arc, dst_node, &row->dst_arcs) {
+        struct ovsdb_idl_row *ref = arc->src;
 
-        const struct ovsdb_idl_arc *arc;
-        LIST_FOR_EACH (arc, dst_node, &row->dst_arcs) {
-            add_tracked_change_for_references(arc->src);
+        if (ovs_list_is_empty(&ref->track_node) &&
+            ovsdb_idl_track_is_set(ref->table)) {
+                ovs_list_push_back(&ref->table->track_list,
+                                   &ref->track_node);
+
+            ref->change_seqno[OVSDB_IDL_CHANGE_MODIFY]
+                = ref->table->change_seqno[OVSDB_IDL_CHANGE_MODIFY]
+                = ref->table->db->change_seqno + 1;
+
+            add_tracked_change_for_references(ref);
         }
     }
 }
@@ -2706,7 +2725,14 @@ ovsdb_idl_row_change__(struct ovsdb_idl_row *row, const struct json *row_json,
                     row->change_seqno[change]
                         = row->table->change_seqno[change]
                         = row->table->db->change_seqno + 1;
+
                     if (table->modes[column_idx] & OVSDB_IDL_TRACK) {
+                        if (ovs_list_is_empty(&row->track_node) &&
+                            ovsdb_idl_track_is_set(row->table)) {
+                            ovs_list_push_back(&row->table->track_list,
+                                               &row->track_node);
+                        }
+
                         add_tracked_change_for_references(row);
                         if (!row->updated) {
                             row->updated = bitmap_allocate(class->n_columns);
@@ -4782,6 +4808,7 @@ ovsdb_idl_txn_insert(struct ovsdb_idl_txn *txn,
     hmap_insert(&row->table->rows, &row->hmap_node, uuid_hash(&row->uuid));
     hmap_insert(&txn->txn_rows, &row->txn_node, uuid_hash(&row->uuid));
     ovsdb_idl_add_to_indexes(row);
+
     return row;
 }
 

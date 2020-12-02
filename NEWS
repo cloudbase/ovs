@@ -1,5 +1,13 @@
-v2.12.1 - xx xxx xxxx
+v2.12.2 - xx xxx xxxx
 ---------------------
+   - OVSDB:
+     * Fixed SHA-1 hash computation for databases larger than 512 MB.
+   - DPDK:
+     * Fixed support of 'net_virtio' devices.
+
+v2.12.1 - 30 Jul 2020
+---------------------
+   - Bug fixes
    - DPDK:
      * OVS validated with DPDK 18.11.9. Due to this being the latest LTS to
        be validated and coupled with the inclusion of fixes for

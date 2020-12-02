@@ -540,7 +540,9 @@ parse_txn(struct server_config *config, struct db *db,
          * (first grabbing its storage), then replace it with the new schema.
          * The transaction must also include the replacement data.
          *
-         * Only clustered database schema changes go through this path. */
+         * Only clustered database schema changes and snapshot installs
+         * go through this path.
+         */
         ovs_assert(txn_json);
         ovs_assert(ovsdb_storage_is_clustered(db->db->storage));
 
@@ -550,11 +552,15 @@ parse_txn(struct server_config *config, struct db *db,
             return error;
         }
 
-        ovsdb_jsonrpc_server_reconnect(
-            config->jsonrpc, false,
-            (db->db->schema
-             ? xasprintf("database %s schema changed", db->db->name)
-             : xasprintf("database %s connected to storage", db->db->name)));
+        if (!db->db->schema ||
+            strcmp(schema->version, db->db->schema->version)) {
+            ovsdb_jsonrpc_server_reconnect(
+                config->jsonrpc, false,
+                (db->db->schema
+                ? xasprintf("database %s schema changed", db->db->name)
+                : xasprintf("database %s connected to storage",
+                            db->db->name)));
+        }
 
         ovsdb_replace(db->db, ovsdb_create(ovsdb_schema_clone(schema), NULL));
 

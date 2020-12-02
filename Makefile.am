@@ -76,12 +76,12 @@ EXTRA_DIST = \
 	MAINTAINERS.rst \
 	README.rst \
 	NOTICE \
+	.ci/linux-build.sh \
+	.ci/linux-prepare.sh \
+	.ci/osx-build.sh \
+	.ci/osx-prepare.sh \
 	.cirrus.yml \
-	.travis.yml \
-	.travis/linux-build.sh \
-	.travis/linux-prepare.sh \
-	.travis/osx-build.sh \
-	.travis/osx-prepare.sh \
+	.github/workflows/build-and-test.yml \
 	appveyor.yml \
 	boot.sh \
 	poc/builders/Vagrantfile \
